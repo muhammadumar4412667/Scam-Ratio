@@ -1,0 +1,427 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>ScamRatio IQ — Can You Spot a Scam?</title>
+<meta name="description" content="ScamRatio IQ — train your scam-spotting skills with interactive red flags, simulations and quizzes.">
+<style>
+:root{
+  --bg:#050506; --panel:rgba(17,10,11,.72); --panel2:rgba(25,12,14,.62);
+  --red:#ed1c24; --red2:#ff3b43; --red3:#a80f16; --white:#f7f7f8;
+  --muted:#9b9b9f; --line:rgba(255,255,255,.10); --gold:#f6ad16; --purple:#9b6cff;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html{scroll-behavior:smooth}
+body{
+  font-family:Inter,ui-sans-serif,system-ui,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  background:var(--bg);color:var(--white);overflow-x:hidden;
+}
+button,input{font:inherit}
+button{cursor:pointer}
+a{color:inherit;text-decoration:none}
+#network{position:fixed;inset:0;width:100%;height:100%;z-index:-4}
+.bg{
+  position:fixed;inset:0;z-index:-5;
+  background:
+    radial-gradient(circle at 20% 25%,rgba(120,0,0,.20),transparent 34%),
+    radial-gradient(circle at 82% 62%,rgba(70,0,0,.16),transparent 32%),
+    linear-gradient(180deg,#080606 0%,#050506 55%,#080606 100%);
+}
+.scanlines{
+  position:fixed;inset:0;pointer-events:none;z-index:20;opacity:.035;
+  background:repeating-linear-gradient(0deg,transparent 0 3px,#fff 4px,transparent 5px);
+}
+.noise{
+  position:fixed;inset:0;pointer-events:none;z-index:19;opacity:.045;
+  background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
+}
+.header{
+  position:fixed;top:14px;left:50%;transform:translateX(-50%);
+  width:min(1280px,calc(100% - 34px));height:68px;z-index:50;
+  display:flex;align-items:center;gap:28px;padding:0 18px;
+  border:1px solid rgba(255,255,255,.10);border-radius:18px;
+  background:rgba(7,7,8,.78);backdrop-filter:blur(20px);
+  box-shadow:0 16px 60px rgba(0,0,0,.45);
+}
+.logo{display:flex;align-items:center;flex:0 0 auto}
+.logo img{width:185px;height:48px;object-fit:contain;display:block}
+.logo-fallback{display:none;font-size:22px;font-weight:900;letter-spacing:-1px}
+.logo-fallback span{color:var(--red)}
+.nav{display:flex;align-items:center;gap:5px;margin-left:auto}
+.nav a{
+  padding:12px 15px;border-radius:12px;color:#bdbdc1;font-size:13px;font-weight:750;
+  transition:.25s ease;
+}
+.nav a:hover,.nav a.active{color:#fff;background:rgba(255,255,255,.055)}
+.nav a.active{box-shadow:inset 0 -2px 0 var(--red);color:#ff5b61}
+.header-actions{display:flex;align-items:center;gap:9px}
+.icon-btn,.user-btn,.menu-btn{
+  border:1px solid var(--line);background:rgba(255,255,255,.035);color:#ddd;
+  height:42px;border-radius:12px;transition:.25s;
+}
+.icon-btn{width:42px}.user-btn{padding:0 14px;font-weight:700;font-size:12px}
+.icon-btn:hover,.user-btn:hover,.menu-btn:hover{border-color:rgba(237,28,36,.6);box-shadow:0 0 22px rgba(237,28,36,.15)}
+.menu-btn{display:none;width:44px;font-size:20px}
+
+main{padding-top:105px}
+.hero{min-height:850px;max-width:1280px;margin:auto;padding:75px 28px 30px;position:relative}
+.hero-grid{display:grid;grid-template-columns:1fr 1fr;gap:40px;align-items:center;min-height:620px}
+.badge{
+  display:inline-flex;align-items:center;gap:10px;padding:9px 15px;border:1px solid rgba(237,28,36,.55);
+  border-radius:999px;background:rgba(237,28,36,.08);color:#ff4d55;font-weight:850;font-size:12px;
+  letter-spacing:.7px;box-shadow:0 0 28px rgba(237,28,36,.12);animation:badgePulse 2.2s infinite;
+}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--red);box-shadow:0 0 14px var(--red)}
+@keyframes badgePulse{50%{box-shadow:0 0 42px rgba(237,28,36,.30)}}
+h1{font-size:clamp(60px,7vw,106px);line-height:.91;letter-spacing:-5px;margin:27px 0 26px;font-weight:950}
+h1 .white{color:#fff}
+h1 .gradient{
+  background:linear-gradient(90deg,#ff2430,#ff6870,#d70d15,#ff3a42);
+  background-size:300% 100%;-webkit-background-clip:text;background-clip:text;color:transparent;
+  animation:headingFlow 4.5s linear infinite;
+  filter:drop-shadow(0 0 18px rgba(237,28,36,.25));
+}
+@keyframes headingFlow{to{background-position:300% 0}}
+.hero-copy{font-size:17px;line-height:1.7;color:#aaaab0;max-width:590px}
+.hero-copy strong{color:#eee}
+.hero-links{display:flex;gap:12px;margin-top:28px;flex-wrap:wrap}
+.primary,.ghost{
+  border:1px solid rgba(237,28,36,.55);border-radius:12px;padding:13px 18px;font-weight:850;
+  transition:.3s;
+}
+.primary{background:var(--red);color:#fff;box-shadow:0 0 25px rgba(237,28,36,.22)}
+.primary:hover{transform:translateY(-3px);box-shadow:0 0 40px rgba(237,28,36,.42);background:#ff3038}
+.ghost{background:rgba(255,255,255,.03);color:#ddd;border-color:var(--line)}
+.ghost:hover{background:rgba(255,255,255,.07);transform:translateY(-3px)}
+
+.phone-zone{position:relative;min-height:520px;display:grid;place-items:center}
+.target{
+  position:absolute;width:340px;height:450px;border:1px solid rgba(237,28,36,.8);
+  border-radius:28px;box-shadow:0 0 45px rgba(237,28,36,.13),inset 0 0 30px rgba(237,28,36,.04);
+}
+.target:before,.target:after{content:"";position:absolute;width:30px;height:30px;border-color:var(--red);border-style:solid}
+.target:before{left:-1px;top:-1px;border-width:2px 0 0 2px}.target:after{right:-1px;bottom:-1px;border-width:0 2px 2px 0}
+.phone{
+  width:250px;height:500px;border:1px solid rgba(255,255,255,.17);border-radius:35px;
+  background:linear-gradient(160deg,#0f1014,#050609);box-shadow:0 35px 90px rgba(0,0,0,.7),0 0 45px rgba(237,28,36,.18);
+  position:relative;padding:42px 15px 16px;z-index:2;animation:phoneFloat 5s ease-in-out infinite;
+}
+@keyframes phoneFloat{50%{transform:translateY(-12px) rotate(.4deg)}}
+.phone:before{content:"";position:absolute;top:10px;left:50%;transform:translateX(-50%);width:86px;height:23px;border-radius:20px;background:#050507}
+.chat-top{font-size:11px;color:#bbb;border-bottom:1px solid var(--line);padding:0 5px 12px;display:flex;justify-content:space-between}
+.chat{padding-top:20px;display:flex;flex-direction:column;gap:12px}
+.msg{max-width:88%;padding:12px 13px;border-radius:15px;background:#1a1b21;color:#ddd;font-size:11px;line-height:1.5}
+.msg b{color:#ff3b43}.msg.me{align-self:flex-end;background:#24252c}
+.warning{align-self:center;color:#ff4c54;border:1px solid rgba(237,28,36,.55);background:rgba(237,28,36,.09);border-radius:999px;padding:7px 10px;font-size:10px;font-weight:800}
+.chat-input{position:absolute;bottom:15px;left:15px;right:15px;border:1px solid var(--line);border-radius:20px;padding:9px 12px;color:#666;font-size:10px}
+.threat{
+  position:absolute;right:-70px;top:90px;display:flex;flex-direction:column;gap:12px;
+}
+.threat span{padding:9px 13px;border:1px solid rgba(237,28,36,.4);border-radius:999px;background:rgba(12,4,5,.65);font-size:10px;font-weight:800;color:#ff4a52;backdrop-filter:blur(10px);animation:threatFloat 3s ease-in-out infinite}
+.threat span:nth-child(2){animation-delay:.5s}.threat span:nth-child(3){animation-delay:1s}
+@keyframes threatFloat{50%{transform:translateX(7px);box-shadow:0 0 25px rgba(237,28,36,.13)}}
+
+.cards{max-width:1280px;margin:-55px auto 0;padding:0 28px;position:relative;z-index:4}
+.card-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:18px}
+.game-card{
+  min-height:220px;padding:24px;border:1px solid rgba(255,255,255,.10);border-radius:24px;
+  background:linear-gradient(145deg,rgba(26,13,15,.76),rgba(8,8,10,.78));backdrop-filter:blur(16px);
+  position:relative;overflow:hidden;transition:transform .4s cubic-bezier(.2,.8,.2,1),border-color .35s,box-shadow .35s,background .35s;
+}
+.game-card:before{content:"";position:absolute;inset:-80px;background:radial-gradient(circle at 25% 30%,var(--glow),transparent 38%);opacity:.12;transition:.4s}
+.game-card:hover{transform:translateY(-13px) scale(1.025);border-color:var(--accent);box-shadow:0 28px 70px rgba(0,0,0,.5),0 0 45px color-mix(in srgb,var(--accent),transparent 72%)}
+.game-card:hover:before{opacity:.28}
+.card-red{--accent:#ff3038;--glow:#ff3038}.card-purple{--accent:#a16cff;--glow:#a16cff}.card-gold{--accent:#f6ad16;--glow:#f6ad16}
+.card-top{display:flex;align-items:flex-start;justify-content:space-between;position:relative;z-index:2}
+.card-icon{width:55px;height:55px;border-radius:16px;border:1px solid color-mix(in srgb,var(--accent),transparent 50%);display:grid;place-items:center;font-size:25px;background:color-mix(in srgb,var(--accent),transparent 88%);box-shadow:0 0 25px color-mix(in srgb,var(--accent),transparent 75%)}
+.pill{font-size:9px;font-weight:900;letter-spacing:.5px;padding:5px 8px;border-radius:999px;background:color-mix(in srgb,var(--accent),transparent 84%);color:var(--accent);border:1px solid color-mix(in srgb,var(--accent),transparent 55%)}
+.card-body{position:relative;z-index:2;margin-top:17px}.card-title{font-size:21px;font-weight:900}.card-desc{color:#9d9da3;font-size:12px;line-height:1.65;margin-top:7px;max-width:390px}
+.card-btn{margin-top:18px;padding:10px 14px;border-radius:10px;border:1px solid color-mix(in srgb,var(--accent),transparent 45%);background:color-mix(in srgb,var(--accent),transparent 88%);color:#fff;font-size:11px;font-weight:900;transition:.25s}
+.card-btn:hover{background:var(--accent);box-shadow:0 0 25px color-mix(in srgb,var(--accent),transparent 55%);transform:translateX(4px)}
+.card-chevron{color:var(--accent);font-size:18px;transition:.3s}.game-card:hover .card-chevron{transform:rotate(180deg)}
+
+.section{max-width:1280px;margin:95px auto 0;padding:0 28px}
+.section-head{display:flex;justify-content:space-between;align-items:end;gap:20px;margin-bottom:24px}
+.eyebrow{color:#ff4b52;font-size:11px;font-weight:900;letter-spacing:1.8px;text-transform:uppercase}
+h2{font-size:38px;letter-spacing:-1.8px;margin-top:7px}.section-note{color:#888;font-size:13px;max-width:500px;line-height:1.6}
+.stats{display:grid;grid-template-columns:repeat(4,1fr);gap:14px}
+.stat{padding:22px;border:1px solid var(--line);border-radius:18px;background:rgba(255,255,255,.025)}
+.stat b{display:block;font-size:32px}.stat span{color:#888;font-size:11px}
+.progress-wrap{margin-top:10px;height:4px;border-radius:10px;background:#17171a;overflow:hidden}.progress{height:100%;width:0;background:linear-gradient(90deg,#8d0a0f,var(--red),#ff7277);animation:load 2.5s ease forwards}
+@keyframes load{to{width:78%}}
+
+.leaderboard{
+  display:grid;grid-template-columns:1.3fr .7fr;gap:18px
+}
+.panel{border:1px solid var(--line);border-radius:22px;background:rgba(255,255,255,.025);padding:22px}
+.rows{display:flex;flex-direction:column;gap:9px;margin-top:15px}.row{display:grid;grid-template-columns:45px 1fr auto;align-items:center;gap:10px;padding:12px;border-radius:13px;background:rgba(255,255,255,.025)}
+.rank{color:#888;font-weight:900}.avatar{width:32px;height:32px;border-radius:10px;background:linear-gradient(135deg,#321114,#111);display:grid;place-items:center;font-size:11px;font-weight:900}.score{color:#ff5259;font-weight:900}
+.disclaimer{margin-top:30px;max-width:760px;margin-left:auto;margin-right:auto;border:1px solid var(--line);border-radius:17px;background:rgba(255,255,255,.025);overflow:hidden}
+.disclaimer button{width:100%;border:0;background:none;color:#bbb;padding:17px 20px;text-align:left;display:flex;justify-content:space-between;font-weight:800}.disclaimer p{display:none;padding:0 20px 18px;color:#777;font-size:12px;line-height:1.6}.disclaimer.open p{display:block}
+.footer{max-width:1280px;margin:100px auto 0;padding:50px 28px 80px;border-top:1px solid var(--line);display:flex;justify-content:space-between;gap:30px;color:#777;font-size:12px}
+.footer-brand{font-weight:900;color:#eee;font-size:15px}.footer-brand span{color:var(--red)}.footer-links{display:flex;gap:25px;flex-wrap:wrap}.footer-links a:hover{color:#fff}
+
+.toast{position:fixed;bottom:24px;left:50%;transform:translate(-50%,20px);opacity:0;pointer-events:none;z-index:100;background:#111;border:1px solid rgba(237,28,36,.5);box-shadow:0 15px 50px rgba(0,0,0,.5);padding:13px 17px;border-radius:12px;color:#ddd;font-size:12px;transition:.3s}.toast.show{opacity:1;transform:translate(-50%,0)}
+.modal{position:fixed;inset:0;background:rgba(0,0,0,.75);backdrop-filter:blur(12px);z-index:90;display:none;place-items:center;padding:20px}.modal.show{display:grid}
+.modal-box{width:min(650px,100%);border:1px solid rgba(237,28,36,.35);border-radius:24px;background:#0c0b0d;box-shadow:0 40px 120px rgba(0,0,0,.8);padding:25px;position:relative}
+.close{position:absolute;right:15px;top:15px;width:34px;height:34px;border:1px solid var(--line);border-radius:10px;background:#161519;color:#aaa}.modal h3{font-size:26px;margin-bottom:7px}.modal-sub{color:#888;font-size:12px;line-height:1.6;margin-bottom:20px}
+.challenge-msg{border:1px solid var(--line);border-radius:18px;background:#111216;padding:18px;line-height:1.8;font-size:14px}.hot{cursor:pointer;color:#ff4d54;border-bottom:1px dashed #ff4d54;transition:.2s}.hot:hover{background:rgba(237,28,36,.15)}
+.challenge-status{margin-top:14px;color:#aaa;font-size:12px}.quiz-options{display:grid;gap:10px}.quiz-options button{border:1px solid var(--line);background:#111216;color:#ddd;padding:14px;border-radius:12px;text-align:left;transition:.2s}.quiz-options button:hover{border-color:#ff3b43;background:rgba(237,28,36,.08)}
+.sim-row{display:flex;gap:10px;margin-top:15px}.sim-btn{flex:1;padding:12px;border-radius:12px;border:1px solid var(--line);background:#151519;color:#ddd}.sim-btn:hover{border-color:#ff3b43}.scenario{padding:18px;border:1px solid var(--line);border-radius:15px;background:#111216;line-height:1.7;color:#ccc}.result{margin-top:12px;padding:12px;border-radius:12px;display:none}.result.good{display:block;background:rgba(25,180,110,.08);border:1px solid rgba(25,180,110,.3);color:#6ee7b7}.result.bad{display:block;background:rgba(237,28,36,.08);border:1px solid rgba(237,28,36,.3);color:#ff7c82}
+
+.mobile-menu{display:none;position:fixed;top:91px;left:17px;right:17px;z-index:49;border:1px solid var(--line);border-radius:17px;background:rgba(10,9,10,.96);backdrop-filter:blur(20px);padding:10px}.mobile-menu a{display:block;padding:14px;border-radius:10px;color:#bbb;font-weight:700}.mobile-menu a:hover{background:#181519;color:#fff}.mobile-menu.open{display:block}
+
+@media(max-width:900px){
+  .header{height:60px;top:9px}.logo img{width:150px;height:42px}.nav,.header-actions .user-btn{display:none}.menu-btn{display:block}.header-actions{margin-left:auto}
+  main{padding-top:82px}.hero{padding:45px 18px 20px;min-height:auto}.hero-grid{grid-template-columns:1fr;min-height:auto}.hero-copy{max-width:700px}
+  h1{font-size:clamp(55px,13vw,90px);letter-spacing:-4px}.phone-zone{min-height:500px}.threat{right:0}.cards{margin-top:10px;padding:0 18px}.card-grid{grid-template-columns:1fr}
+  .stats{grid-template-columns:repeat(2,1fr)}.leaderboard{grid-template-columns:1fr}.section{padding:0 18px}.footer{padding:40px 18px 70px;display:block}.footer-links{margin-top:22px}
+}
+@media(max-width:540px){
+  .logo img{width:137px}.hero{padding-top:30px}.hero-grid{gap:5px}h1{font-size:54px;letter-spacing:-3px}.hero-copy{font-size:14px}.phone-zone{min-height:450px}.phone{width:220px;height:440px}.target{width:290px;height:400px}.threat{right:-2px;top:40px;transform:scale(.78);transform-origin:right top}.stats{grid-template-columns:1fr 1fr}.stat b{font-size:25px}h2{font-size:31px}
+}
+</style>
+</head>
+<body>
+<div class="bg"></div><canvas id="network"></canvas><div class="noise"></div><div class="scanlines"></div>
+
+<header class="header">
+  <a class="logo" href="index.html" aria-label="ScamRatio home">
+    <!-- IMPORTANT: put YOUR exact logo image in the same folder and name it logo.png -->
+    <img src="logo.png" alt="SCAMRATIO" onerror="this.style.display='none';document.querySelector('.logo-fallback').style.display='block'">
+    <div class="logo-fallback"><span>SCAM</span>RATIO</div>
+  </a>
+  <nav class="nav">
+    <a href="index.html">Home</a>
+    <a href="report.html">Report a Scam</a>
+    <a class="active" href="#top">Scam IQ</a>
+  </nav>
+  <div class="header-actions">
+    <button class="icon-btn" id="soundBtn" aria-label="Toggle sound">🔊</button>
+    <button class="user-btn" id="userBtn">◯ Umar</button>
+    <button class="menu-btn" id="menuBtn" aria-label="Open menu">☰</button>
+  </div>
+</header>
+
+<div class="mobile-menu" id="mobileMenu">
+  <a href="index.html">Home</a><a href="report.html">Report a Scam</a><a href="#games">Scam IQ</a>
+</div>
+
+<main id="top">
+<section class="hero">
+  <div class="hero-grid">
+    <div>
+      <div class="badge"><span class="dot"></span> SCAMRATIO IQ</div>
+      <h1><span class="white">Can you</span><br><span class="gradient">spot a scam?</span></h1>
+      <p class="hero-copy">Real scam tactics. Three interactive ways to train. <strong>Play a round, test your instincts, and learn what to look for before it costs you.</strong></p>
+      <div class="hero-links">
+        <button class="primary" onclick="openModal('redflag')">Start training →</button>
+        <a class="ghost" href="#games">Explore challenges</a>
+      </div>
+    </div>
+    <div class="phone-zone">
+      <div class="target"></div>
+      <div class="phone">
+        <div class="chat-top"><span>‹ &nbsp; +1 (929) 555-0173</span><span>•••</span></div>
+        <div class="chat">
+          <div class="msg">Hello, your parcel <b>#US-8829</b> is held at customs. Verify to release it: <b>bit.ly/us-customs</b></div>
+          <div class="msg me">I haven't ordered anything. Who is this?</div>
+          <div class="warning">⚠ Suspicious link detected</div>
+          <div class="msg">Confirm your delivery now or your package will be returned.</div>
+        </div>
+        <div class="chat-input">Message...</div>
+      </div>
+      <div class="threat"><span>◉ FAKE DELIVERY</span><span>⌁ PHISHING LINK</span><span>⚠ ACCOUNT THEFT</span><span>◉ CUSTOMS SCAM</span></div>
+    </div>
+  </div>
+</section>
+
+<section class="cards" id="games">
+  <div class="card-grid">
+    <article class="game-card card-red" onclick="openModal('redflag')">
+      <div class="card-top"><div class="card-icon">⌁</div><span class="pill">NEW</span><span class="card-chevron">⌄</span></div>
+      <div class="card-body"><div class="card-title">Red Flag Hunt</div><p class="card-desc">Find the hidden warning signs inside a realistic scam message. Click every red flag before time runs out.</p><button class="card-btn">Start Challenge →</button></div>
+    </article>
+    <article class="game-card card-purple" onclick="openModal('simulator')">
+      <div class="card-top"><div class="card-icon">ϟ</div><span class="pill">INSTINCT</span><span class="card-chevron">⌄</span></div>
+      <div class="card-body"><div class="card-title">Simulator</div><p class="card-desc">Trust your gut. Read a scenario, make the call, then see the signals you should have noticed.</p><button class="card-btn">Start Simulation →</button></div>
+    </article>
+    <article class="game-card card-gold" onclick="openModal('quiz')">
+      <div class="card-top"><div class="card-icon">?</div><span class="pill">KNOWLEDGE</span><span class="card-chevron">⌄</span></div>
+      <div class="card-body"><div class="card-title">Quiz</div><p class="card-desc">Test your knowledge with practical scam scenarios. Build your Scam IQ one question at a time.</p><button class="card-btn">Start Quiz →</button></div>
+    </article>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><div><div class="eyebrow">Your training signal</div><h2>Build better scam instincts.</h2></div><p class="section-note">These numbers are local to this demo page. Connect them to your database later for real accounts and global leaderboards.</p></div>
+  <div class="stats">
+    <div class="stat"><b id="statScore">0</b><span>Training score</span><div class="progress-wrap"><div class="progress"></div></div></div>
+    <div class="stat"><b id="statFlags">0</b><span>Red flags found</span></div>
+    <div class="stat"><b id="statRounds">0</b><span>Rounds completed</span></div>
+    <div class="stat"><b id="statStreak">1</b><span>Current streak</span></div>
+  </div>
+</section>
+
+<section class="section">
+  <div class="section-head"><div><div class="eyebrow">Community</div><h2>Training leaderboard.</h2></div><button class="ghost" onclick="showToast('Leaderboard is ready for your real database.')">View full board →</button></div>
+  <div class="leaderboard">
+    <div class="panel"><div style="font-weight:900">Top learners</div><div class="rows">
+      <div class="row"><span class="rank">01</span><span style="display:flex;align-items:center;gap:10px"><i class="avatar">AR</i> Alex R.</span><span class="score">9,840</span></div>
+      <div class="row"><span class="rank">02</span><span style="display:flex;align-items:center;gap:10px"><i class="avatar">MK</i> Maya K.</span><span class="score">9,120</span></div>
+      <div class="row"><span class="rank">03</span><span style="display:flex;align-items:center;gap:10px"><i class="avatar">JT</i> Jordan T.</span><span class="score">8,760</span></div>
+      <div class="row"><span class="rank">04</span><span style="display:flex;align-items:center;gap:10px"><i class="avatar">UM</i> You</span><span class="score" id="youScore">0</span></div>
+    </div></div>
+    <div class="panel"><div class="eyebrow">How it works</div><h3 style="font-size:24px;margin:10px 0">Learn. Practice. Repeat.</h3><p style="color:#888;line-height:1.7;font-size:13px">Every challenge rewards recognition of concrete scam signals: urgency, suspicious links, impersonation, payment pressure and requests for secrets.</p></div>
+  </div>
+</section>
+
+<div class="disclaimer" id="disclaimer">
+  <button onclick="document.getElementById('disclaimer').classList.toggle('open')"><span>ⓘ &nbsp; Terms & Disclaimer</span><span>⌄</span></button>
+  <p>ScamRatio IQ is an educational experience. Scenarios are fictionalized examples designed to teach common warning signs. A game result is not a security verdict and should not be used as proof that a real message, person, website or transaction is safe.</p>
+</div>
+
+<footer class="footer">
+  <div><div class="footer-brand"><span>SCAM</span>RATIO</div><div style="margin-top:8px">Check before you trust.</div></div>
+  <div class="footer-links"><a href="index.html">Home</a><a href="report.html">Report a Scam</a><a href="#games">Scam IQ</a><a href="#">Privacy</a><a href="#">Terms</a></div>
+</footer>
+</main>
+
+<div class="toast" id="toast"></div>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <button class="close" onclick="closeModal()">×</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+
+<script>
+/* ---------- Animated cyber network background ---------- */
+const canvas=document.getElementById('network'),ctx=canvas.getContext('2d');
+let W,H,dpr,nodes=[],mouse={x:-9999,y:-9999};
+function resize(){
+  dpr=Math.min(devicePixelRatio||1,2); W=innerWidth; H=innerHeight;
+  canvas.width=W*dpr;canvas.height=H*dpr;canvas.style.width=W+'px';canvas.style.height=H+'px';ctx.setTransform(dpr,0,0,dpr,0,0);
+  nodes=Array.from({length:Math.min(85,Math.floor(W/16))},()=>({x:Math.random()*W,y:Math.random()*H,vx:(Math.random()-.5)*.18,vy:(Math.random()-.5)*.18,r:Math.random()*1.8+.4,hot:Math.random()<.16}));
+}
+addEventListener('resize',resize); addEventListener('mousemove',e=>{mouse.x=e.clientX;mouse.y=e.clientY});
+resize();
+function draw(){
+  ctx.clearRect(0,0,W,H);
+  for(const n of nodes){n.x+=n.vx;n.y+=n.vy;if(n.x<-20)n.x=W+20;if(n.x>W+20)n.x=-20;if(n.y<-20)n.y=H+20;if(n.y>H+20)n.y=-20}
+  for(let i=0;i<nodes.length;i++)for(let j=i+1;j<nodes.length;j++){
+    const a=nodes[i],b=nodes[j],dx=a.x-b.x,dy=a.y-b.y,d=Math.hypot(dx,dy);
+    if(d<150){ctx.strokeStyle=`rgba(170,40,45,${(1-d/150)*.16})`;ctx.lineWidth=1;ctx.beginPath();ctx.moveTo(a.x,a.y);ctx.lineTo(b.x,b.y);ctx.stroke()}
+  }
+  for(const n of nodes){
+    const dm=Math.hypot(n.x-mouse.x,n.y-mouse.y), pulse=n.hot?Math.sin(Date.now()/650+n.x)*.5+.5:0;
+    ctx.beginPath();ctx.fillStyle=n.hot?`rgba(255,35,45,${.35+pulse*.45})`:'rgba(255,255,255,.22)';ctx.arc(n.x,n.y,n.r+(n.hot?pulse*2:0),0,Math.PI*2);ctx.fill();
+    if(n.hot&&pulse>.65){ctx.beginPath();ctx.strokeStyle='rgba(255,35,45,.12)';ctx.arc(n.x,n.y,8+pulse*8,0,Math.PI*2);ctx.stroke()}
+  }
+  requestAnimationFrame(draw);
+}
+draw();
+
+/* ---------- Sound ---------- */
+let soundOn=true,audioCtx;
+function beep(freq=440,duration=.07){
+  if(!soundOn)return;
+  audioCtx ||= new (window.AudioContext||window.webkitAudioContext)();
+  const o=audioCtx.createOscillator(),g=audioCtx.createGain();o.frequency.value=freq;o.type='sine';g.gain.value=.035;
+  o.connect(g);g.connect(audioCtx.destination);o.start();g.gain.exponentialRampToValueAtTime(.0001,audioCtx.currentTime+duration);o.stop(audioCtx.currentTime+duration);
+}
+document.getElementById('soundBtn').onclick=()=>{soundOn=!soundOn;document.getElementById('soundBtn').textContent=soundOn?'🔊':'🔇';beep(600,.06)};
+
+/* ---------- Mobile menu ---------- */
+document.getElementById('menuBtn').onclick=()=>document.getElementById('mobileMenu').classList.toggle('open');
+
+/* ---------- Toast ---------- */
+function showToast(t){const x=document.getElementById('toast');x.textContent=t;x.classList.add('show');setTimeout(()=>x.classList.remove('show'),2600)}
+
+/* ---------- Player state ---------- */
+let score=0,flags=0,rounds=0;
+function updateStats(){
+  document.getElementById('statScore').textContent=score.toLocaleString();
+  document.getElementById('statFlags').textContent=flags;
+  document.getElementById('statRounds').textContent=rounds;
+  document.getElementById('youScore').textContent=score.toLocaleString();
+}
+function award(points,found=0){score+=points;flags+=found;rounds++;updateStats();beep(700,.08);}
+
+/* ---------- Modal system ---------- */
+const modal=document.getElementById('modal'),content=document.getElementById('modalContent');
+function openModal(type){
+  modal.classList.add('show'); beep(520,.06);
+  if(type==='redflag') redFlagGame();
+  if(type==='simulator') simulator();
+  if(type==='quiz') quiz();
+}
+function closeModal(){modal.classList.remove('show');content.innerHTML=''}
+modal.addEventListener('click',e=>{if(e.target===modal)closeModal()});
+document.addEventListener('keydown',e=>{if(e.key==='Escape')closeModal()});
+
+/* ---------- Red Flag Hunt ---------- */
+function redFlagGame(){
+  content.innerHTML=`
+  <div class="eyebrow">RED FLAG HUNT</div><h3>Find every warning sign.</h3>
+  <p class="modal-sub">Click the suspicious parts of this message. There are <b>4</b> hidden flags.</p>
+  <div class="challenge-msg">
+    <span class="hot" data-flag>URGENT:</span> Your package is held at customs.<br>
+    Please <span class="hot" data-flag>verify your card</span> immediately or delivery will be cancelled.<br>
+    Use this <span class="hot" data-flag>shortened link</span> to confirm your identity:
+    <span class="hot" data-flag>bit.ly/confirm-delivery</span>
+  </div>
+  <div class="challenge-status" id="challengeStatus">Flags found: 0 / 4 · Time is running.</div>
+  <button class="primary" style="margin-top:16px" onclick="finishRedFlag()">Finish Challenge</button>`;
+  let found=0; window._found=0;
+  document.querySelectorAll('[data-flag]').forEach(el=>el.onclick=()=>{
+    if(el.dataset.hit)return;el.dataset.hit=1;el.style.color='#fff';el.style.background='rgba(237,28,36,.28)';found++;window._found=found;
+    document.getElementById('challengeStatus').textContent=`Flags found: ${found} / 4`;
+    beep(720,.07);
+  });
+}
+function finishRedFlag(){
+  const f=window._found||0,pts=f*250;award(pts,f);closeModal();
+  showToast(f===4?'Perfect! All 4 red flags found. +1000':'Challenge complete. You found '+f+' / 4 flags. +'+pts);
+}
+
+/* ---------- Simulator ---------- */
+const scenarios=[
+ {text:'A caller says they are from your bank. They claim fraud was detected and ask for the one-time code sent to your phone.',bad:'SCAM — legitimate support should not need your one-time authentication code.',good:'Look for: impersonation + urgency + request for a secret code.'},
+ {text:'You receive an email from a company you recognize. It asks you to open the company website manually, sign in there, and check your account notifications.',bad:'This scenario does not contain the same obvious pressure to disclose a secret.',good:'Safer behavior: navigate to the known site yourself rather than using an unexpected link.'}
+];
+let simIndex=0;
+function simulator(){
+  const s=scenarios[simIndex%scenarios.length];
+  content.innerHTML=`<div class="eyebrow">SIMULATOR</div><h3>Make the call.</h3><p class="modal-sub">Read the scenario and decide whether it should trigger your scam alarm.</p>
+  <div class="scenario">${s.text}</div>
+  <div class="sim-row"><button class="sim-btn" onclick="simAnswer(true)">🚨 Scam</button><button class="sim-btn" onclick="simAnswer(false)">✓ Probably safe</button></div>
+  <div class="result" id="simResult"></div>`;
+}
+function simAnswer(saidScam){
+  const isScam=simIndex%scenarios.length===0,correct=saidScam===isScam;
+  const r=document.getElementById('simResult');r.className='result '+(correct?'good':'bad');
+  r.textContent=correct?'Correct. '+(isScam?scenarios[0].good:scenarios[1].good):'Not quite. '+(isScam?scenarios[0].good:scenarios[1].good);
+  if(correct)award(300,0);else{rounds++;updateStats();} simIndex++;setTimeout(simulator,900);
+}
+
+/* ---------- Quiz ---------- */
+const questions=[
+ {q:'Which signal is most suspicious in an unexpected message?',a:['A request to take your time','A demand for a one-time code','A normal support number you looked up yourself'],c:1},
+ {q:'What is a safer way to inspect a suspicious delivery message?',a:['Click the link immediately','Reply with your password','Open the courier website using a known address'],c:2},
+ {q:'Which combination is a common scam pattern?',a:['Urgency + impersonation + payment pressure','Clear terms + no pressure','A receipt you expected'],c:0}
+];
+let qi=0;
+function quiz(){
+ const q=questions[qi%questions.length];
+ content.innerHTML=`<div class="eyebrow">SCAM IQ QUIZ</div><h3>${q.q}</h3><p class="modal-sub">Question ${(qi%questions.length)+1} of ${questions.length}</p><div class="quiz-options">${q.a.map((x,i)=>`<button onclick="answerQuiz(${i},${q.c})">${String.fromCharCode(65+i)}. ${x}</button>`).join('')}</div><div id="quizResult" style="margin-top:14px;color:#aaa;font-size:12px"></div>`;
+}
+function answerQuiz(i,c){
+ const ok=i===c,r=document.getElementById('quizResult');r.textContent=ok?'Correct — +200 points.':'Not this time. Review the signal and try the next question.';r.style.color=ok?'#6ee7b7':'#ff7c82';if(ok)award(200,0);else{rounds++;updateStats();}qi++;setTimeout(quiz,850);
+}
+updateStats();
+</script>
+</body>
+</html>
