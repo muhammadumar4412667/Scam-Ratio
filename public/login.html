@@ -1400,11 +1400,11 @@
 
 
         /*
-          The backend will return an authentication
-          token when we connect it.
+          The backend returns an authentication token.
 
-          We store it locally so subsequent pages
-          can identify the logged-in user.
+          The token is retained as a compatibility fallback;
+          the primary session is also handled by the secure
+          httpOnly cookie set by the backend.
         */
 
         if (data.token) {
@@ -1416,11 +1416,19 @@
               data.token
             );
 
+            sessionStorage.removeItem(
+              "scamRatioToken"
+            );
+
           } else {
 
             sessionStorage.setItem(
               "scamRatioToken",
               data.token
+            );
+
+            localStorage.removeItem(
+              "scamRatioToken"
             );
 
           }
@@ -1566,13 +1574,11 @@
 
       try {
 
-        (
+        const response = await fetch(
           API_BASE + "/api/auth/register",
-          {const response = await fetch(
-  API_BASE + "/api/auth/register",
-  {
-    method: "POST",
-    credentials: "include",
+          {
+            method: "POST",
+            credentials: "include",
 
             headers: {
               "Content-Type": "application/json"
@@ -1603,9 +1609,13 @@
 
         if (data.token) {
 
-          sessionStorage.setItem(
+          localStorage.setItem(
             "scamRatioToken",
             data.token
+          );
+
+          sessionStorage.removeItem(
+            "scamRatioToken"
           );
 
         }
@@ -1730,6 +1740,7 @@
           API_BASE + "/api/auth/forgot-password",
           {
             method: "POST",
+            credentials: "include",
 
             headers: {
               "Content-Type": "application/json"
