@@ -106,7 +106,7 @@ button{font:inherit;cursor:pointer}a{color:inherit}
 <span class="spark s1">✦</span><span class="spark s2">✦</span><span class="spark s3">✦</span>
 <div class="check-icon">✓</div>
 <h1>Very Likely Safe</h1><div class="domain" id="heroDomain">iskills.com</div>
-<div class="hero-actions"><button class="btn visit" id="visitButton">VISIT</button><button class="btn report" onclick="showToast('Report form coming soon.')">REPORT</button></div>
+<div class="hero-actions"><button class="btn visit" id="visitButton">VISIT</button><button class="btn report" id="reportButton" type="button">REPORT</button></div>
 </div>
 </section>
 
@@ -115,7 +115,7 @@ button{font:inherit;cursor:pointer}a{color:inherit}
 <h2><span id="domainTitle">iskills.com</span> has a high safety score. Why?</h2>
 <div class="scorebox"><div class="scoreline"><div class="scorelabel">ScamRatio</div><div class="score">92 <small>/ 100</small></div></div><div class="bar"><i></i></div></div>
 <div class="updated">Last checked: <b>Just now</b></div>
-<div class="controls"><button class="pill" onclick="showToast('Expert analysis section opened.')">Expert Analysis</button><button class="pill secondary" onclick="showToast('Business verification details opened.')">Business Verification</button></div>
+<div class="controls"><button class="pill" id="expertAnalysisButton" type="button">Expert Analysis</button><button class="pill secondary" id="businessVerificationButton" type="button">Business Verification</button></div>
 </div>
 
 <section class="section">
@@ -177,46 +177,77 @@ button{font:inherit;cursor:pointer}a{color:inherit}
 <script>
 let toastTimer;
 function showToast(message){
- const el=document.getElementById('toast');el.textContent=message;el.classList.add('show');
- clearTimeout(toastTimer);toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
+  const el=document.getElementById('toast');
+  if(!el) return;
+  el.textContent=message;
+  el.classList.add('show');
+  clearTimeout(toastTimer);
+  toastTimer=setTimeout(()=>el.classList.remove('show'),2800);
 }
 
 /* Read the search from index.html and keep the existing result-page design. */
 (function(){
- const params = new URLSearchParams(window.location.search);
- const query = (params.get('query') || '').trim();
- const fallback = 'iskills.com';
- const value = query || fallback;
+  const params = new URLSearchParams(window.location.search);
+  const query = (params.get('query') || '').trim();
+  const value = query || 'Website';
 
- const heroDomain = document.getElementById('heroDomain');
- const domainTitle = document.getElementById('domainTitle');
- const dataDomain = document.getElementById('dataDomain');
- const visitButton = document.getElementById('visitButton');
- const pageTitle = document.getElementById('pageTitle');
+  const heroDomain = document.getElementById('heroDomain');
+  const domainTitle = document.getElementById('domainTitle');
+  const dataDomain = document.getElementById('dataDomain');
+  const visitButton = document.getElementById('visitButton');
+  const reportButton = document.getElementById('reportButton');
+  const expertAnalysisButton = document.getElementById('expertAnalysisButton');
+  const businessVerificationButton = document.getElementById('businessVerificationButton');
+  const pageTitle = document.getElementById('pageTitle');
 
- if(heroDomain) heroDomain.textContent = value;
- if(domainTitle) domainTitle.textContent = value;
- if(dataDomain) dataDomain.textContent = value;
- if(pageTitle) pageTitle.textContent = 'ScamRatio — Website Safety Report for ' + value;
+  if(heroDomain) heroDomain.textContent = value;
+  if(domainTitle) domainTitle.textContent = value;
+  if(dataDomain) dataDomain.textContent = value;
+  if(pageTitle) pageTitle.textContent = 'ScamRatio — Website Safety Report' + (query ? ' for ' + value : '');
 
- if(visitButton){
-   visitButton.addEventListener('click', function(){
-     let url = value;
-     if(!/^https?:\/\//i.test(url)){
-       url = 'https://' + url;
-     }
-     try{
-       const parsed = new URL(url);
-       if(parsed.protocol === 'http:' || parsed.protocol === 'https:'){
-         window.open(parsed.href, '_blank', 'noopener,noreferrer');
-       }else{
-         showToast('Please enter a valid website address.');
-       }
-     }catch(error){
-       showToast('Please enter a valid website address.');
-     }
-   });
- }
+  if(visitButton){
+    visitButton.addEventListener('click', function(){
+      if(!query || value === 'Website'){
+        showToast('No website address is available to visit.');
+        return;
+      }
+      let url = value;
+      if(!/^https?:\/\//i.test(url)){
+        url = 'https://' + url;
+      }
+      try{
+        const parsed = new URL(url);
+        if(parsed.protocol === 'http:' || parsed.protocol === 'https:'){
+          window.open(parsed.href, '_blank', 'noopener,noreferrer');
+        }else{
+          showToast('Please enter a valid website address.');
+        }
+      }catch(error){
+        showToast('Please enter a valid website address.');
+      }
+    });
+  }
+
+  if(reportButton){
+    reportButton.addEventListener('click', function(){
+      const target = query
+        ? 'report.html?query=' + encodeURIComponent(query)
+        : 'report.html';
+      window.location.href = target;
+    });
+  }
+
+  if(expertAnalysisButton){
+    expertAnalysisButton.addEventListener('click', function(){
+      document.getElementById('analysis')?.scrollIntoView({behavior:'smooth', block:'start'});
+    });
+  }
+
+  if(businessVerificationButton){
+    businessVerificationButton.addEventListener('click', function(){
+      window.location.href = 'business.html';
+    });
+  }
 })();
 </script>
 <script>
@@ -225,21 +256,27 @@ document.addEventListener('click',function(e){const links=document.querySelector
 document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventListener('click',function(){const links=document.querySelector('.nav-links'),menu=document.querySelector('.menu');links?.classList.remove('mobile-open');if(menu){menu.setAttribute('aria-expanded','false');menu.setAttribute('aria-label','Open menu');menu.textContent='☰';}});});
 </script>
 <script>
-/* Connect result page to the ScamRatio API */
+/* Connect result page to the ScamRatio API on both GitHub Pages and Render. */
 (async function () {
   const params = new URLSearchParams(window.location.search);
   const query = (params.get('query') || '').trim();
+  const $ = (selector) => document.querySelector(selector);
 
-  const $ = (s) => document.querySelector(s);
+  const API_BASE = window.SCAMRATIO_API_BASE ||
+    (/github\.io$/i.test(window.location.hostname)
+      ? 'https://scam-ratio.onrender.com'
+      : '');
 
   function fillList(box, messages, icon) {
     if (!box) return;
 
     box.innerHTML = '';
 
-    const items = messages.length ? messages : ['No signals were returned by the basic checks.'];
+    const items = messages.length
+      ? messages
+      : ['No signals were returned by the available checks.'];
 
-    items.forEach(msg => {
+    items.forEach((message) => {
       const row = document.createElement('div');
       row.className = 'item';
 
@@ -248,7 +285,7 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
       iconEl.textContent = icon;
 
       const textEl = document.createElement('span');
-      textEl.textContent = msg;
+      textEl.textContent = message;
 
       row.appendChild(iconEl);
       row.appendChild(textEl);
@@ -259,37 +296,86 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
   function showError(message) {
     const heading = $('.hero h1');
     const summary = $('.summary');
+    const score = $('.score');
+    const bar = $('.bar i');
+    const icon = $('.check-icon');
 
     if (heading) heading.textContent = 'Could not check this website';
+
     if (summary) {
-      summary.textContent = message || 'Please try again with a valid website address.';
+      summary.textContent =
+        message || 'Please return to ScamRatio and check a website.';
+    }
+
+    if (score) score.innerHTML = '— <small>/ 100</small>';
+    if (bar) {
+      bar.style.width = '0%';
+      bar.style.background = '#c7c9cc';
+    }
+    if (icon) {
+      icon.style.background = '#9a9da2';
+      icon.textContent = '!';
     }
   }
 
-  try {
-    /*
-      index.html stores the POST response in sessionStorage.
-      The query-string fallback keeps direct result.html?query=... links working.
-    */
-    let data = null;
+  function getStoredResult() {
+    try {
+      const stored = sessionStorage.getItem('scamRatioResult');
+      if (!stored) return null;
 
-    const stored = sessionStorage.getItem('scamRatioResult');
-
-    if (stored) {
-      try {
-        data = JSON.parse(stored);
-      } catch (error) {
+      const parsed = JSON.parse(stored);
+      if (!parsed || typeof parsed !== 'object') {
         sessionStorage.removeItem('scamRatioResult');
+        return null;
       }
-    }
 
-    if (!data && query) {
-      const res = await fetch('/api/check?url=' + encodeURIComponent(query));
-      data = await res.json();
+      return parsed;
+    } catch (error) {
+      try { sessionStorage.removeItem('scamRatioResult'); } catch (_) {}
+      return null;
+    }
+  }
+
+  async function getApiResult(target) {
+    const endpoint = API_BASE + '/api/check?url=' + encodeURIComponent(target);
+    const response = await fetch(endpoint, {
+      method: 'GET',
+      headers: { 'Accept': 'application/json' },
+      credentials: 'include'
+    });
+
+    const contentType = response.headers.get('content-type') || '';
+    const data = contentType.includes('application/json')
+      ? await response.json()
+      : null;
+
+    if (!response.ok) {
+      throw new Error(
+        data?.error ||
+        `ScamRatio API request failed (${response.status}).`
+      );
     }
 
     if (!data) {
-      showError('No website check was found. Please return to ScamRatio and check a website.');
+      throw new Error('The ScamRatio API returned an invalid response.');
+    }
+
+    return data;
+  }
+
+  try {
+    /* index.html stores the POST response in sessionStorage. */
+    let data = getStoredResult();
+
+    /* Direct result.html?query=... links use the Render API when on GitHub Pages. */
+    if (!data && query) {
+      data = await getApiResult(query);
+    }
+
+    if (!data) {
+      showError(
+        'No website check was found. Please return to ScamRatio and check a website.'
+      );
       return;
     }
 
@@ -298,7 +384,10 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
       return;
     }
 
-    const safety = Math.max(0, Math.min(100, 100 - Number(data.score || 0)));
+    const safety = Math.max(
+      0,
+      Math.min(100, 100 - Number(data.score || 0))
+    );
 
     const verdicts = {
       safe: 'Very Likely Safe',
@@ -314,12 +403,11 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
 
     const verdict = verdicts[data.status] || 'Use Caution';
     const color = colors[data.status] || '#f59e0b';
-    const domain = data.target && data.target.domain
-      ? data.target.domain
-      : (data.target && data.target.input ? data.target.input : 'Unknown website');
 
-    $('.hero h1').textContent = verdict;
+    const target = data.target || {};
+    const domain = target.domain || target.input || query || 'Unknown website';
 
+    if ($('.hero h1')) $('.hero h1').textContent = verdict;
     if ($('#heroDomain')) $('#heroDomain').textContent = domain;
     if ($('#domainTitle')) $('#domainTitle').textContent = domain;
     if ($('#dataDomain')) $('#dataDomain').textContent = domain;
@@ -327,9 +415,11 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
     const titleSpan = $('#domainTitle');
     if (titleSpan && titleSpan.nextSibling) {
       titleSpan.nextSibling.textContent =
-        safety >= 70 ? ' has a high safety score. Why?' :
-        safety >= 40 ? ' has a medium safety score. Why?' :
-                       ' has a low safety score. Why?';
+        safety >= 70
+          ? ' has a high safety score. Why?'
+          : safety >= 40
+            ? ' has a medium safety score. Why?'
+            : ' has a low safety score. Why?';
     }
 
     if ($('.score')) {
@@ -349,22 +439,26 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
     }
 
     const positives = Array.isArray(data.positives)
-      ? data.positives.map(p => p.message || p).filter(Boolean)
+      ? data.positives.map((item) => item?.message || item).filter(Boolean)
       : [];
 
     const warnings = Array.isArray(data.warnings)
-      ? data.warnings.map(w => w.message || w).filter(Boolean)
+      ? data.warnings.map((item) => item?.message || item).filter(Boolean)
       : [];
 
     fillList(
       $('.highlight.positive .highlight-box'),
-      positives.length ? positives : ['No positive signals were returned by the basic checks.'],
+      positives.length
+        ? positives
+        : ['No positive signals were returned by the available checks.'],
       '✓'
     );
 
     fillList(
       $('.highlight.negative .highlight-box'),
-      warnings.length ? warnings : ['No warning signals were returned by the basic checks.'],
+      warnings.length
+        ? warnings
+        : ['No warning signals were returned by the available checks.'],
       '×'
     );
 
@@ -374,16 +468,18 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
 
       const strong = document.createElement('strong');
       strong.textContent = 'In summary:';
-
       summary.appendChild(strong);
-      const summaryText = Array.isArray(data.warnings) && data.warnings.length
-        ? 'Some warning signals were detected and should be reviewed before trusting this website.'
-        : (data.summary || 'The website was checked using ScamRatio basic signals.');
 
-      summary.appendChild(document.createTextNode(
-        ' ' + summaryText +
-        (data.disclaimer ? ' ' + data.disclaimer : '')
-      ));
+      const summaryText =
+        warnings.length
+          ? 'Some warning signals were detected and should be reviewed before trusting this website.'
+          : (data.summary || 'The website was checked using ScamRatio signals.');
+
+      summary.appendChild(
+        document.createTextNode(
+          ' ' + summaryText + (data.disclaimer ? ' ' + data.disclaimer : '')
+        )
+      );
     }
 
     const updated = $('.updated b');
@@ -396,7 +492,7 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
     const boxes = document.querySelectorAll('.databox strong');
 
     if (boxes[1]) {
-      boxes[1].textContent = data.checks && data.checks.https
+      boxes[1].textContent = data.checks?.https
         ? 'Enabled'
         : 'Not enabled';
     }
@@ -406,12 +502,13 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
     }
 
     if (data.checks) {
-      const securityDetails = document.querySelectorAll('.details details .detail');
+      const securityDetails =
+        document.querySelectorAll('.details details .detail');
 
       if (securityDetails[1]) {
         securityDetails[1].textContent =
           `HTTPS: ${data.checks.https ? 'Enabled' : 'Not enabled'}. ` +
-          `SSL/TLS: ${data.checks.ssl && data.checks.ssl.ok ? 'Valid' : 'Not verified'}. ` +
+          `SSL/TLS: ${data.checks.ssl?.ok ? 'Valid' : 'Not verified'}. ` +
           `DNS: ${data.checks.dnsAvailable ? 'Available' : 'Unavailable'}.`;
       }
 
@@ -430,15 +527,21 @@ document.querySelectorAll('.nav-links a').forEach(function(link){link.addEventLi
 
         securityDetails[3].textContent =
           `DNS available: ${data.checks.dnsAvailable ? 'Yes' : 'No'}. ` +
-          `IP address${Array.isArray(data.checks.ipAddresses) && data.checks.ipAddresses.length === 1 ? '' : 'es'}: ${ips}.`;
+          `IP address${
+            Array.isArray(data.checks.ipAddresses) &&
+            data.checks.ipAddresses.length === 1
+              ? ''
+              : 'es'
+          }: ${ips}.`;
       }
     }
-
-  } catch (err) {
-    console.error('ScamRatio result error:', err);
-    showError('Could not reach the ScamRatio server. Make sure server.js is running.');
+  } catch (error) {
+    console.error('ScamRatio result error:', error);
+    showError(
+      error?.message ||
+      'Could not reach the ScamRatio API. Please try again.'
+    );
   }
 })();
-
 </script>
 </body></html>
