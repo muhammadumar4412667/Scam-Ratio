@@ -551,6 +551,23 @@ footer .container{width:min(1180px,calc(100% - 36px));}
   footer .footer-col a{font-size:12px;}
 }
 
+
+/* ===== AUTH HEADER STATE ===== */
+#authLoginLink {
+  transition: background .2s ease, color .2s ease;
+}
+#authLoginLink.logout-link {
+  color: #444;
+}
+#authLoginLink.logout-link:hover {
+  color: #111;
+  background: #f1f1f1;
+}
+#authCta.logged-in {
+  min-width: 112px;
+  text-align: center;
+}
+
 </style>
 </head>
 <body>
@@ -570,9 +587,9 @@ footer .container{width:min(1180px,calc(100% - 36px));}
       <a href="report.html">Report a Scam</a>
       <a href="iq.html">Scam IQ</a>
       <a href="business.html">Business</a>
-      <a href="login.html">Login</a>
+      <a id="authLoginLink" href="login.html">Login</a>
       <a href="#newsletter">EN</a>
-      <a class="nav-cta" href="login.html">login</a>
+      <a id="authCta" class="nav-cta" href="login.html">login</a>
     </div>
     <button class="menu" type="button" aria-label="Open menu" aria-expanded="false" onclick="toggleMobile()">☰</button>
   </nav>
@@ -1095,5 +1112,151 @@ document.querySelectorAll('[data-href]').forEach(function(box){
   });
 });
 </script>
+\n<script>
+// ===== AUTHENTICATED HEADER =====
+(function () {
+  const API_BASE = 'https://scam-ratio.onrender.com';
+  const loginLink = document.getElementById('authLoginLink');
+  const cta = document.getElementById('authCta');
+
+  if (!loginLink || !cta) return;
+
+  function readStoredUser() {
+    try {
+      const raw = localStorage.getItem('scamRatioUser');
+      return raw ? JSON.parse(raw) : null;
+    } catch {
+      return null;
+    }
+  }
+
+  function hasStoredToken() {
+    return Boolean(
+      localStorage.getItem('scamRatioToken') ||
+      sessionStorage.getItem('scamRatioToken')
+    );
+  }
+
+  function clearStoredAuth() {
+    localStorage.removeItem('scamRatioToken');
+    localStorage.removeItem('scamRatioUser');
+    sessionStorage.removeItem('scamRatioToken');
+  }
+
+  function userDisplayName(user) {
+    const name = String(user?.name || '').trim();
+    if (name) return name.split(/\\s+/)[0];
+
+    const email = String(user?.email || '').trim();
+    if (email.includes('@')) return email.split('@')[0];
+
+    return 'User';
+  }
+
+  function setLoggedOut() {
+    loginLink.textContent = 'Login';
+    loginLink.href = 'login.html';
+    loginLink.classList.remove('logout-link');
+    loginLink.removeAttribute('aria-label');
+
+    cta.textContent = 'login';
+    cta.href = 'login.html';
+    cta.classList.remove('logged-in');
+    cta.removeAttribute('aria-label');
+    cta.onclick = null;
+  }
+
+  function setLoggedIn(user) {
+    const firstName = userDisplayName(user);
+    loginLink.textContent = 'Logout';
+    loginLink.href = '#logout';
+    loginLink.classList.add('logout-link');
+    loginLink.setAttribute('aria-label', 'Log out of ScamRatio');
+
+    cta.textContent = `Hi, ${firstName}`;
+    cta.href = '#account';
+    cta.classList.add('logged-in');
+    cta.setAttribute('aria-label', `Signed in as ${firstName}`);
+    cta.onclick = function (event) {
+      event.preventDefault();
+    };
+
+    async function performLogout(event) {
+      if (event) event.preventDefault();
+
+      loginLink.textContent = 'Logging out…';
+      loginLink.style.pointerEvents = 'none';
+
+      try {
+        const token = localStorage.getItem('scamRatioToken') || sessionStorage.getItem('scamRatioToken');
+        const headers = {};
+        if (token) headers.Authorization = `Bearer ${token}`;
+
+        await fetch(`${API_BASE}/api/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          headers
+        });
+      } catch (error) {
+        console.warn('ScamRatio logout request failed:', error);
+      } finally {
+        clearStoredAuth();
+        setLoggedOut();
+      }
+    }
+
+    loginLink.onclick = performLogout;
+  }
+
+  async function refreshAuthHeader() {
+    const storedUser = readStoredUser();
+    const token = localStorage.getItem('scamRatioToken') || sessionStorage.getItem('scamRatioToken');
+    const headers = {};
+    if (token) headers.Authorization = `Bearer ${token}`;
+
+    try {
+      const response = await fetch(`${API_BASE}/api/auth/me`, {
+        method: 'GET',
+        credentials: 'include',
+        headers
+      });
+
+      if (response.ok) {
+        const data = await response.json();
+        if (data?.authenticated && data.user) {
+          localStorage.setItem('scamRatioUser', JSON.stringify(data.user));
+          setLoggedIn(data.user);
+          return;
+        }
+      }
+
+      if (response.status === 401) {
+        clearStoredAuth();
+        setLoggedOut();
+        return;
+      }
+
+      // Non-auth errors should not erase a valid local session indicator.
+      if (storedUser && hasStoredToken()) {
+        setLoggedIn(storedUser);
+        return;
+      }
+
+      setLoggedOut();
+    } catch (error) {
+      // GitHub Pages can still render the signed-in UI from the local token/user
+      // while the Render API is temporarily unavailable.
+      if (storedUser && hasStoredToken()) {
+        setLoggedIn(storedUser);
+      } else {
+        setLoggedOut();
+      }
+    }
+  }
+
+  setLoggedOut();
+  refreshAuthHeader();
+})();
+</script>\n
 </body>
 </html>
