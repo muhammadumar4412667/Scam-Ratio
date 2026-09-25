@@ -6,3 +6,5 @@ services:
     startCommand: node server.js
     envVars:
       - fromGroup: scam-ratio-production
+      - key: JWT_SECRET
+        generateValue: true
