@@ -1,0 +1,8 @@
+services:
+  - type: web
+    name: Scam-Ratio
+    runtime: node
+    buildCommand: npm install
+    startCommand: node server.js
+    envVars:
+      - fromGroup: scam-ratio-production
