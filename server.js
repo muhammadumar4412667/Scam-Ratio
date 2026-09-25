@@ -10,13 +10,31 @@ const path = require("path");
 const dns = require("dns").promises;
 const net = require("net");
 const tls = require("tls");
+const crypto = require("crypto");
+const bcrypt = require("bcryptjs");
+const jwt = require("jsonwebtoken");
+const { Pool } = require("pg");
 
 const app = express();
 const PORT = process.env.PORT || 3000;
 
+const pool = process.env.DATABASE_URL
+  ? new Pool({
+      connectionString: process.env.DATABASE_URL,
+      ssl: process.env.RENDER ? { rejectUnauthorized: false } : false
+    })
+  : null;
+
+const JWT_SECRET =
+  process.env.JWT_SECRET || crypto.randomBytes(32).toString("hex");
+
+let databaseReady = false;
+
 // --------------------------------------------------
 // Middleware
 // --------------------------------------------------
+
+app.set("trust proxy", 1);
 
 app.use(
   helmet({
@@ -24,15 +42,31 @@ app.use(
   })
 );
 
-app.use(cors());
+const allowedOrigins = new Set([
+  "https://muhammadumar4412667.github.io",
+  "https://scam-ratio.onrender.com",
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "http://localhost:5500",
+  "http://127.0.0.1:5500"
+]);
+
+app.use(
+  cors({
+    origin(origin, callback) {
+      if (!origin || allowedOrigins.has(origin)) return callback(null, true);
+      return callback(new Error("Origin is not allowed by ScamRatio API."));
+    },
+    credentials: true
+  })
+);
+
 app.use(express.json({ limit: "1mb" }));
 app.use(express.urlencoded({ extended: true }));
-
-// Serve website files
 app.use(express.static(path.join(__dirname, "public")));
 
 // --------------------------------------------------
-// Helpers
+// Website checker helpers
 // --------------------------------------------------
 
 function normalizeUrl(input) {
@@ -94,7 +128,6 @@ function getRootDomain(hostname) {
     return parts.join(".");
   }
 
-  // Common two-level public suffix patterns.
   const secondLevelTlds = new Set([
     "co.uk",
     "org.uk",
@@ -113,16 +146,10 @@ function getRootDomain(hostname) {
 
   const lastTwo = parts.slice(-2).join(".");
 
-  if (secondLevelTlds.has(lastTwo) && parts.length >= 3) {
-    return parts.slice(-3).join(".");
-  }
-
-  return parts.slice(-2).join(".");
+  return secondLevelTlds.has(lastTwo)
+    ? parts.slice(-3).join(".")
+    : parts.slice(-2).join(".");
 }
-
-// --------------------------------------------------
-// Basic Website / URL Analysis
-// --------------------------------------------------
 
 function analyzeDomain(url) {
   const hostname = url.hostname.toLowerCase();
@@ -309,9 +336,7 @@ function analyzeDomain(url) {
     warnings,
     positives
   };
-}// --------------------------------------------------
-// DNS Analysis
-// --------------------------------------------------
+}
 
 async function checkDns(hostname) {
   const result = {
@@ -333,6 +358,7 @@ async function checkDns(hostname) {
     });
 
     result.addresses = records.map((record) => record.address);
+
     result.ipv4 = records
       .filter((record) => record.family === 4)
       .map((record) => record.address);
@@ -348,9 +374,7 @@ async function checkDns(hostname) {
   }
 
   try {
-    const mxRecords = await dns.resolveMx(hostname);
-
-    result.mx = mxRecords
+    result.mx = (await dns.resolveMx(hostname))
       .sort((a, b) => a.priority - b.priority)
       .map((record) => ({
         exchange: record.exchange,
@@ -367,19 +391,15 @@ async function checkDns(hostname) {
   }
 
   try {
-    const txtRecords = await dns.resolveTxt(hostname);
-
-    result.txt = txtRecords.map((record) => record.join(""));
+    result.txt = (await dns.resolveTxt(hostname)).map((record) =>
+      record.join("")
+    );
   } catch {
     result.txt = [];
   }
 
   return result;
 }
-
-// --------------------------------------------------
-// SSL Certificate Check
-// --------------------------------------------------
 
 async function checkSsl(hostname) {
   return new Promise((resolve) => {
@@ -410,6 +430,7 @@ async function checkSsl(hostname) {
             validTo = certificate.valid_to;
 
             const expiryTime = new Date(certificate.valid_to).getTime();
+
             daysRemaining = Math.floor(
               (expiryTime - Date.now()) / 86400000
             );
@@ -458,10 +479,6 @@ async function checkSsl(hostname) {
   });
 }
 
-// --------------------------------------------------
-// Domain Intelligence / RDAP
-// --------------------------------------------------
-
 async function checkDomainIntelligence(hostname) {
   const rootDomain = getRootDomain(hostname);
 
@@ -487,7 +504,7 @@ async function checkDomainIntelligence(hostname) {
   try {
     const response = await fetch(
       "https://rdap.verisign.com/com/v1/domain/" +
-encodeURIComponent(rootDomain),
+        encodeURIComponent(rootDomain),
       {
         headers: {
           Accept: "application/rdap+json, application/json"
@@ -504,11 +521,11 @@ encodeURIComponent(rootDomain),
 
     result.available = true;
 
-    // Registrar
     if (Array.isArray(data.entities)) {
-      const registrarEntity = data.entities.find((entity) =>
-        Array.isArray(entity.roles) &&
-        entity.roles.includes("registrar")
+      const registrarEntity = data.entities.find(
+        (entity) =>
+          Array.isArray(entity.roles) &&
+          entity.roles.includes("registrar")
       );
 
       if (registrarEntity) {
@@ -529,7 +546,6 @@ encodeURIComponent(rootDomain),
       }
     }
 
-    // Events
     if (Array.isArray(data.events)) {
       const registrationEvent = data.events.find(
         (event) =>
@@ -553,7 +569,9 @@ encodeURIComponent(rootDomain),
         if (!Number.isNaN(createdTime)) {
           result.ageDays = Math.max(
             0,
-            Math.floor((Date.now() - createdTime) / 86400000)
+            Math.floor(
+              (Date.now() - createdTime) / 86400000
+            )
           );
         }
       }
@@ -573,32 +591,28 @@ encodeURIComponent(rootDomain),
       }
     }
 
-    // Domain status
     if (Array.isArray(data.status)) {
       result.status = data.status;
     }
 
-    // Nameservers
     if (Array.isArray(data.nameservers)) {
       result.nameservers = data.nameservers
         .map((server) => server.ldhName || server.unicodeName)
         .filter(Boolean);
     }
 
-    // DNSSEC
     if (typeof data.secureDNS === "object") {
-      result.dnssec = Boolean(data.secureDNS.delegationSigned);
+      result.dnssec = Boolean(
+        data.secureDNS.delegationSigned
+      );
     }
 
     return result;
   } catch (error) {
     result.error = error.message;
-
     return result;
   }
-}// --------------------------------------------------
-// VirusTotal Domain Reputation
-// --------------------------------------------------
+}
 
 async function checkVirusTotal(domain) {
   const result = {
@@ -621,13 +635,16 @@ async function checkVirusTotal(domain) {
   }
 
   if (!domain || net.isIP(domain)) {
-    result.error = "VirusTotal domain lookup requires a domain name.";
+    result.error =
+      "VirusTotal domain lookup requires a domain name.";
     return result;
   }
 
   try {
     const response = await fetch(
-      `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(domain)}`,
+      `https://www.virustotal.com/api/v3/domains/${encodeURIComponent(
+        domain
+      )}`,
       {
         headers: {
           "x-apikey": apiKey,
@@ -638,43 +655,60 @@ async function checkVirusTotal(domain) {
     );
 
     if (!response.ok) {
-      throw new Error(`VirusTotal returned HTTP ${response.status}`);
+      throw new Error(
+        `VirusTotal returned HTTP ${response.status}`
+      );
     }
 
     const data = await response.json();
 
-    const attributes = data?.data?.attributes || {};
+    const attributes =
+      data?.data?.attributes || {};
 
-    const stats = attributes.last_analysis_stats || {};
+    const stats =
+      attributes.last_analysis_stats || {};
 
     result.available = true;
-    result.malicious = Number(stats.malicious || 0);
-    result.suspicious = Number(stats.suspicious || 0);
-    result.harmless = Number(stats.harmless || 0);
-    result.undetected = Number(stats.undetected || 0);
-    result.timeout = Number(stats.timeout || 0);
+    result.malicious = Number(
+      stats.malicious || 0
+    );
 
-    if (typeof attributes.reputation === "number") {
-      result.reputation = attributes.reputation;
+    result.suspicious = Number(
+      stats.suspicious || 0
+    );
+
+    result.harmless = Number(
+      stats.harmless || 0
+    );
+
+    result.undetected = Number(
+      stats.undetected || 0
+    );
+
+    result.timeout = Number(
+      stats.timeout || 0
+    );
+
+    if (
+      typeof attributes.reputation === "number"
+    ) {
+      result.reputation =
+        attributes.reputation;
     }
 
     if (attributes.last_analysis_date) {
-      result.lastAnalysisDate = new Date(
-        attributes.last_analysis_date * 1000
-      ).toISOString();
+      result.lastAnalysisDate =
+        new Date(
+          attributes.last_analysis_date * 1000
+        ).toISOString();
     }
 
     return result;
   } catch (error) {
     result.error = error.message;
-
     return result;
   }
 }
-
-// --------------------------------------------------
-// VirusTotal Risk Analysis
-// --------------------------------------------------
 
 function analyzeVirusTotal(virusTotal) {
   let riskScore = 0;
@@ -691,7 +725,10 @@ function analyzeVirusTotal(virusTotal) {
   }
 
   if (virusTotal.malicious > 0) {
-    riskScore += Math.min(virusTotal.malicious * 12, 60);
+    riskScore += Math.min(
+      virusTotal.malicious * 12,
+      60
+    );
 
     warnings.push({
       type: "virustotal",
@@ -701,7 +738,10 @@ function analyzeVirusTotal(virusTotal) {
   }
 
   if (virusTotal.suspicious > 0) {
-    riskScore += Math.min(virusTotal.suspicious * 5, 25);
+    riskScore += Math.min(
+      virusTotal.suspicious * 5,
+      25
+    );
 
     warnings.push({
       type: "virustotal",
@@ -754,10 +794,6 @@ function analyzeVirusTotal(virusTotal) {
   };
 }
 
-// --------------------------------------------------
-// Domain Intelligence Risk Analysis
-// --------------------------------------------------
-
 function analyzeDomainIntelligence(domainInfo) {
   let riskScore = 0;
 
@@ -772,69 +808,62 @@ function analyzeDomainIntelligence(domainInfo) {
     };
   }
 
-  if (
-    typeof domainInfo.ageDays === "number" &&
-    domainInfo.ageDays < 30
-  ) {
-    riskScore += 35;
+  if (typeof domainInfo.ageDays === "number") {
+    if (domainInfo.ageDays < 30) {
+      riskScore += 35;
 
-    warnings.push({
-      type: "domain-age",
-      message:
-        "The domain appears to be less than 30 days old."
-    });
-  } else if (
-    typeof domainInfo.ageDays === "number" &&
-    domainInfo.ageDays < 90
-  ) {
-    riskScore += 20;
+      warnings.push({
+        type: "domain-age",
+        message:
+          "The domain appears to be less than 30 days old."
+      });
+    } else if (domainInfo.ageDays < 90) {
+      riskScore += 20;
 
-    warnings.push({
-      type: "domain-age",
-      message:
-        "The domain appears to be less than 90 days old."
-    });
-  } else if (
-    typeof domainInfo.ageDays === "number" &&
-    domainInfo.ageDays < 365
-  ) {
-    riskScore += 8;
+      warnings.push({
+        type: "domain-age",
+        message:
+          "The domain appears to be less than 90 days old."
+      });
+    } else if (domainInfo.ageDays < 365) {
+      riskScore += 8;
 
-    warnings.push({
-      type: "domain-age",
-      message:
-        "The domain is less than one year old."
-    });
-  } else if (typeof domainInfo.ageDays === "number") {
-    positives.push({
-      type: "domain-age",
-      message:
-        "The domain has been registered for more than one year."
-    });
+      warnings.push({
+        type: "domain-age",
+        message:
+          "The domain is less than one year old."
+      });
+    } else {
+      positives.push({
+        type: "domain-age",
+        message:
+          "The domain has been registered for more than one year."
+      });
+    }
   }
 
   if (
-    typeof domainInfo.daysUntilExpiry === "number" &&
-    domainInfo.daysUntilExpiry < 0
+    typeof domainInfo.daysUntilExpiry === "number"
   ) {
-    riskScore += 30;
+    if (domainInfo.daysUntilExpiry < 0) {
+      riskScore += 30;
 
-    warnings.push({
-      type: "domain-expiry",
-      message:
-        "The domain registration appears to have expired."
-    });
-  } else if (
-    typeof domainInfo.daysUntilExpiry === "number" &&
-    domainInfo.daysUntilExpiry < 30
-  ) {
-    riskScore += 10;
+      warnings.push({
+        type: "domain-expiry",
+        message:
+          "The domain registration appears to have expired."
+      });
+    } else if (
+      domainInfo.daysUntilExpiry < 30
+    ) {
+      riskScore += 10;
 
-    warnings.push({
-      type: "domain-expiry",
-      message:
-        "The domain registration is due to expire within 30 days."
-    });
+      warnings.push({
+        type: "domain-expiry",
+        message:
+          "The domain registration is due to expire within 30 days."
+      });
+    }
   }
 
   if (domainInfo.registrar) {
@@ -845,7 +874,10 @@ function analyzeDomainIntelligence(domainInfo) {
     });
   }
 
-  if (domainInfo.nameservers && domainInfo.nameservers.length > 0) {
+  if (
+    domainInfo.nameservers &&
+    domainInfo.nameservers.length
+  ) {
     positives.push({
       type: "dns",
       message:
@@ -866,7 +898,9 @@ function analyzeDomainIntelligence(domainInfo) {
     warnings,
     positives
   };
-}// --------------------------------------------------
+}
+
+// --------------------------------------------------
 // Overall Scam Check
 // --------------------------------------------------
 
@@ -874,12 +908,16 @@ async function performScamCheck(input) {
   const url = normalizeUrl(input);
 
   if (!url) {
-    throw new Error("Please enter a valid website URL.");
+    throw new Error(
+      "Please enter a valid website URL."
+    );
   }
 
-  const hostname = url.hostname.toLowerCase();
+  const hostname =
+    url.hostname.toLowerCase();
 
-  const domainAnalysis = analyzeDomain(url);
+  const domainAnalysis =
+    analyzeDomain(url);
 
   const [
     dnsResult,
@@ -890,30 +928,29 @@ async function performScamCheck(input) {
     checkDns(hostname),
     checkSsl(hostname),
     checkDomainIntelligence(hostname),
-    checkVirusTotal(getRootDomain(hostname))
+    checkVirusTotal(
+      getRootDomain(hostname)
+    )
   ]);
 
-  const vtAnalysis = analyzeVirusTotal(virusTotal);
+  const vtAnalysis =
+    analyzeVirusTotal(virusTotal);
+
   const domainInfoAnalysis =
-    analyzeDomainIntelligence(domainIntelligence);
+    analyzeDomainIntelligence(
+      domainIntelligence
+    );
 
-  let riskScore = 0;
+  let riskScore =
+    domainAnalysis.riskScore;
 
-  const warnings = [];
-  const positives = [];
+  const warnings = [
+    ...domainAnalysis.warnings
+  ];
 
-  // --------------------------------------------------
-  // URL / domain signals
-  // --------------------------------------------------
-
-  riskScore += domainAnalysis.riskScore;
-
-  warnings.push(...domainAnalysis.warnings);
-  positives.push(...domainAnalysis.positives);
-
-  // --------------------------------------------------
-  // DNS signals
-  // --------------------------------------------------
+  const positives = [
+    ...domainAnalysis.positives
+  ];
 
   if (!dnsResult.available) {
     riskScore += 20;
@@ -941,25 +978,26 @@ async function performScamCheck(input) {
     });
   }
 
-  // --------------------------------------------------
-  // SSL signals
-  // --------------------------------------------------
-
   if (url.protocol === "https:") {
-    if (sslResult.available && sslResult.valid) {
+    if (
+      sslResult.available &&
+      sslResult.valid
+    ) {
       positives.push({
         type: "ssl",
         message:
           "The website has a valid SSL/TLS certificate."
       });
-    } else if (!sslResult.available) {
+    } else if (
+      !sslResult.available
+    ) {
+      riskScore += 8;
+
       warnings.push({
         type: "ssl",
         message:
           "HTTPS is being used, but the SSL certificate could not be fully verified."
       });
-
-      riskScore += 8;
     } else {
       riskScore += 25;
 
@@ -971,51 +1009,46 @@ async function performScamCheck(input) {
     }
   }
 
-  // --------------------------------------------------
-  // Domain intelligence
-  // --------------------------------------------------
+  riskScore +=
+    domainInfoAnalysis.riskScore +
+    vtAnalysis.riskScore;
 
-  riskScore += domainInfoAnalysis.riskScore;
+  warnings.push(
+    ...domainInfoAnalysis.warnings,
+    ...vtAnalysis.warnings
+  );
 
-  warnings.push(...domainInfoAnalysis.warnings);
-  positives.push(...domainInfoAnalysis.positives);
-
-  // --------------------------------------------------
-  // VirusTotal
-  // --------------------------------------------------
-
-  riskScore += vtAnalysis.riskScore;
-
-  warnings.push(...vtAnalysis.warnings);
-  positives.push(...vtAnalysis.positives);
-
-  // --------------------------------------------------
-  // Important VirusTotal minimum thresholds
-  // --------------------------------------------------
+  positives.push(
+    ...domainInfoAnalysis.positives,
+    ...vtAnalysis.positives
+  );
 
   if (virusTotal.available) {
     if (virusTotal.malicious >= 5) {
-      riskScore = Math.max(riskScore, 80);
-    } else if (virusTotal.malicious >= 2) {
-      riskScore = Math.max(riskScore, 70);
+      riskScore = Math.max(
+        riskScore,
+        80
+      );
+    } else if (
+      virusTotal.malicious >= 2
+    ) {
+      riskScore = Math.max(
+        riskScore,
+        70
+      );
     }
   }
 
-  // --------------------------------------------------
-  // Clamp final risk score
-  // --------------------------------------------------
-
   riskScore = Math.max(
     0,
-    Math.min(Math.round(riskScore), 100)
+    Math.min(
+      Math.round(riskScore),
+      100
+    )
   );
 
-  // --------------------------------------------------
-  // Risk level
-  // --------------------------------------------------
-
-  let riskLevel;
-  let status;
+  let riskLevel = "Low Risk";
+  let status = "safe";
 
   if (riskScore >= 70) {
     riskLevel = "High Risk";
@@ -1023,91 +1056,30 @@ async function performScamCheck(input) {
   } else if (riskScore >= 40) {
     riskLevel = "Medium Risk";
     status = "warning";
-  } else {
-    riskLevel = "Low Risk";
-    status = "safe";
   }
 
-  // --------------------------------------------------
-  // Final positive signals
-  // --------------------------------------------------
+  const uniqueByMessage = (items) => {
+    const seen = new Set();
 
-  const finalPositives = [];
+    return items.filter((item) => {
+      if (
+        !item ||
+        !item.message ||
+        seen.has(item.message)
+      ) {
+        return false;
+      }
 
-  const addPositive = (message, type = "general") => {
-    if (
-      message &&
-      !finalPositives.some(
-        (item) => item.message === message
-      )
-    ) {
-      finalPositives.push({
-        type,
-        message
-      });
-    }
+      seen.add(item.message);
+      return true;
+    });
   };
 
-  if (url.protocol === "https:") {
-    addPositive(
-      "HTTPS is enabled.",
-      "security"
-    );
-  }
+  const finalWarnings =
+    uniqueByMessage(warnings);
 
-  if (sslResult.available && sslResult.valid) {
-    addPositive(
-      "The SSL certificate is valid.",
-      "ssl"
-    );
-  }
-
-  if (dnsResult.available) {
-    addPositive(
-      "DNS resolution is working.",
-      "dns"
-    );
-  }
-
-  for (const item of positives) {
-    if (typeof item === "string") {
-      addPositive(item);
-    } else if (item && item.message) {
-      addPositive(item.message, item.type);
-    }
-  }
-
-  // --------------------------------------------------
-  // Final warnings
-  // --------------------------------------------------
-
-  const finalWarnings = [];
-
-  const addWarning = (message, type = "general") => {
-    if (
-      message &&
-      !finalWarnings.some(
-        (item) => item.message === message
-      )
-    ) {
-      finalWarnings.push({
-        type,
-        message
-      });
-    }
-  };
-
-  for (const item of warnings) {
-    if (typeof item === "string") {
-      addWarning(item);
-    } else if (item && item.message) {
-      addWarning(item.message, item.type);
-    }
-  }
-
-  // --------------------------------------------------
-  // Summary
-  // --------------------------------------------------
+  const finalPositives =
+    uniqueByMessage(positives);
 
   let summary;
 
@@ -1117,7 +1089,7 @@ async function performScamCheck(input) {
   } else if (riskScore >= 40) {
     summary =
       "Some risk signals were detected. Review the available website information before trusting it.";
-  } else if (finalWarnings.length > 0) {
+  } else if (finalWarnings.length) {
     summary =
       "The website has a relatively low overall risk score, but some signals should still be reviewed.";
   } else {
@@ -1125,12 +1097,9 @@ async function performScamCheck(input) {
       "No major warning signals were detected by the checks currently available.";
   }
 
-  // --------------------------------------------------
-  // Trust determination
-  // --------------------------------------------------
-
   const domainOldEnough =
-    typeof domainIntelligence.ageDays === "number" &&
+    typeof domainIntelligence.ageDays ===
+      "number" &&
     domainIntelligence.ageDays >= 730;
 
   const vtClean =
@@ -1148,14 +1117,18 @@ async function performScamCheck(input) {
     domainOldEnough &&
     vtClean;
 
-  if (trusted && riskScore < 5) {
+  if (
+    trusted &&
+    riskScore < 5
+  ) {
     riskScore = 5;
   }
 
   return {
     success: true,
 
-    checkedAt: new Date().toISOString(),
+    checkedAt:
+      new Date().toISOString(),
 
     target: {
       input,
@@ -1173,168 +1146,1238 @@ async function performScamCheck(input) {
 
     checks: {
       https: {
-        enabled: url.protocol === "https:",
-        valid: sslResult.valid
+        enabled:
+          url.protocol === "https:",
+        valid:
+          sslResult.valid
       },
 
-      dnsAvailable: dnsResult.available,
+      dnsAvailable:
+        dnsResult.available,
 
-      ipAddresses: dnsResult.addresses,
+      ipAddresses:
+        dnsResult.addresses,
 
-      ssl: sslResult,
+      ssl:
+        sslResult,
 
       domainAge: {
         available:
-          typeof domainIntelligence.ageDays === "number",
-        ageDays: domainIntelligence.ageDays,
-        created: domainIntelligence.created
+          typeof domainIntelligence.ageDays ===
+          "number",
+        ageDays:
+          domainIntelligence.ageDays,
+        created:
+          domainIntelligence.created
       },
 
       domainIntelligence,
 
-      dns: dnsResult,
+      dns:
+        dnsResult,
 
       virusTotal
     },
 
-    warnings: finalWarnings.map(
-      (item) => item.message
-    ),
+    warnings:
+      finalWarnings.map(
+        (item) => item.message
+      ),
 
-    positives: finalPositives.map(
-      (item) => item.message
-    ),
+    positives:
+      finalPositives.map(
+        (item) => item.message
+      ),
 
     disclaimer:
       "ScamRatio provides automated website risk signals and does not guarantee that a website is safe or fraudulent."
   };
-}// --------------------------------------------------
-// API Health Check
-// --------------------------------------------------
-
-app.get("/api/health", (req, res) => {
-  res.json({
-    success: true,
-    service: "ScamRatio API",
-    status: "online",
-    timestamp: new Date().toISOString(),
-    virusTotalConfigured:
-      Boolean(process.env.VIRUSTOTAL_API_KEY)
-  });
-});
+}
 
 // --------------------------------------------------
-// POST /api/check
+// Database / Authentication helpers
 // --------------------------------------------------
 
-app.post("/api/check", async (req, res) => {
+async function initDatabase() {
+  if (!pool) {
+    console.log(
+      "PostgreSQL is not configured. Authentication is disabled locally."
+    );
+
+    return;
+  }
+
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS users (
+      id BIGSERIAL PRIMARY KEY,
+      email TEXT UNIQUE NOT NULL,
+      password_hash TEXT NOT NULL,
+      name TEXT,
+      created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+      reset_token_hash TEXT,
+      reset_token_expires_at TIMESTAMPTZ
+    );
+  `);
+
+  await pool.query(`
+    ALTER TABLE users
+      ADD COLUMN IF NOT EXISTS name TEXT,
+      ADD COLUMN IF NOT EXISTS reset_token_hash TEXT,
+      ADD COLUMN IF NOT EXISTS reset_token_expires_at TIMESTAMPTZ;
+  `);
+
+  await pool.query("SELECT 1");
+
+  databaseReady = true;
+
+  console.log(
+    "PostgreSQL connected and users table is ready."
+  );
+}
+
+function requireDatabase(res) {
+  if (!pool || !databaseReady) {
+    res.status(503).json({
+      success: false,
+      error:
+        "Authentication database is not available."
+    });
+
+    return false;
+  }
+
+  return true;
+}
+
+function parseCookies(req) {
+  const header = req.headers.cookie;
+
+  if (!header) {
+    return {};
+  }
+
+  return header
+    .split(";")
+    .reduce((out, part) => {
+      const index = part.indexOf("=");
+
+      if (index < 0) {
+        return out;
+      }
+
+      const key =
+        part.slice(0, index).trim();
+
+      const value =
+        part.slice(index + 1).trim();
+
+      try {
+        out[key] =
+          decodeURIComponent(value);
+      } catch {
+        out[key] = value;
+      }
+
+      return out;
+    }, {});
+}
+
+function getAuthToken(req) {
+  const cookies =
+    parseCookies(req);
+
+  if (cookies.scamratio_token) {
+    return cookies.scamratio_token;
+  }
+
+  const authorization =
+    req.headers.authorization || "";
+
+  if (
+    authorization.startsWith("Bearer ")
+  ) {
+    return authorization
+      .slice(7)
+      .trim();
+  }
+
+  return null;
+}
+
+function getRememberMe(body) {
+  const value =
+    body?.rememberMe ??
+    body?.remember ??
+    true;
+
+  return !(
+    value === false ||
+    value === "false" ||
+    value === 0 ||
+    value === "0"
+  );
+}
+
+function getAuthCookieOptions(
+  rememberMe = true
+) {
+  return {
+    httpOnly: true,
+
+    secure:
+      Boolean(process.env.RENDER),
+
+    sameSite:
+      process.env.RENDER
+        ? "none"
+        : "lax",
+
+    path: "/",
+
+    maxAge:
+      (rememberMe ? 30 : 1) *
+      24 *
+      60 *
+      60 *
+      1000
+  };
+}
+
+function createAuthToken(
+  userId,
+  rememberMe = true
+) {
+  return jwt.sign(
+    {
+      sub: String(userId)
+    },
+    JWT_SECRET,
+    {
+      expiresIn:
+        rememberMe
+          ? "30d"
+          : "1d"
+    }
+  );
+}
+
+function sanitizeUser(user) {
+  return {
+    id: String(user.id),
+
+    email:
+      user.email,
+
+    name:
+      user.name || "",
+
+    createdAt:
+      user.created_at
+  };
+}
+
+async function getAuthenticatedUser(req) {
+  if (!pool) {
+    return null;
+  }
+
+  const token =
+    getAuthToken(req);
+
+  if (!token) {
+    return null;
+  }
+
   try {
-    const input = req.body?.url || req.body?.domain;
+    const payload =
+      jwt.verify(
+        token,
+        JWT_SECRET
+      );
 
-    if (!input) {
-      return res.status(400).json({
+    const result =
+      await pool.query(
+        `SELECT id, email, name, created_at
+         FROM users
+         WHERE id = $1
+         LIMIT 1`,
+        [payload.sub]
+      );
+
+    return (
+      result.rows[0] ||
+      null
+    );
+  } catch {
+    return null;
+  }
+}
+
+function isAllowedAuthOrigin(req) {
+  const origin =
+    req.headers.origin;
+
+  return (
+    !origin ||
+    allowedOrigins.has(origin)
+  );
+}
+
+async function sendPasswordResetEmail(
+  email,
+  resetUrl
+) {
+  const resendApiKey =
+    process.env.RESEND_API_KEY;
+
+  const fromEmail =
+    process.env.AUTH_FROM_EMAIL;
+
+  if (
+    !resendApiKey ||
+    !fromEmail
+  ) {
+    return {
+      sent: false
+    };
+  }
+
+  const response =
+    await fetch(
+      "https://api.resend.com/emails",
+      {
+        method: "POST",
+
+        headers: {
+          Authorization:
+            `Bearer ${resendApiKey}`,
+
+          "Content-Type":
+            "application/json"
+        },
+
+        body: JSON.stringify({
+          from:
+            fromEmail,
+
+          to: [email],
+
+          subject:
+            "Reset your ScamRatio password",
+
+          html: `
+            <div style="font-family:Arial,sans-serif;line-height:1.6">
+              <h2>ScamRatio password reset</h2>
+
+              <p>
+                We received a request to reset
+                your ScamRatio password.
+              </p>
+
+              <p>
+                <a href="${resetUrl}">
+                  Reset your password
+                </a>
+              </p>
+
+              <p>
+                This link expires in 1 hour.
+              </p>
+
+              <p>
+                If you did not request this,
+                you can ignore this email.
+              </p>
+            </div>
+          `
+        })
+      }
+    );
+
+  if (!response.ok) {
+    throw new Error(
+      `Password reset email failed (${response.status}).`
+    );
+  }
+
+  return {
+    sent: true
+  };
+}
+
+// --------------------------------------------------
+// Health
+// --------------------------------------------------
+
+app.get(
+  "/api/health",
+  (req, res) => {
+    res.json({
+      success: true,
+
+      service:
+        "ScamRatio API",
+
+      status:
+        "online",
+
+      timestamp:
+        new Date().toISOString(),
+
+      virusTotalConfigured:
+        Boolean(
+          process.env.VIRUSTOTAL_API_KEY
+        ),
+
+      databaseConfigured:
+        Boolean(
+          process.env.DATABASE_URL
+        ),
+
+      databaseReady
+    });
+  }
+);
+
+// --------------------------------------------------
+// Authentication API
+// --------------------------------------------------
+
+app.post(
+  "/api/auth/register",
+  async (req, res) => {
+    if (
+      !isAllowedAuthOrigin(req)
+    ) {
+      return res.status(403).json({
         success: false,
-        error: "Please provide a website URL."
+        error:
+          "Origin is not allowed."
       });
     }
 
-    const result = await performScamCheck(input);
+    if (!requireDatabase(res)) {
+      return;
+    }
 
-    res.json(result);
-  } catch (error) {
-    console.error("POST /api/check error:", error);
+    try {
+      const email =
+        String(
+          req.body?.email || ""
+        )
+          .trim()
+          .toLowerCase();
 
-    res.status(500).json({
-      success: false,
-      error: error.message || "Website check failed."
-    });
-  }
-});
+      const password =
+        String(
+          req.body?.password || ""
+        );
 
-// --------------------------------------------------
-// GET /api/check
-// --------------------------------------------------
+      const name =
+        String(
+          req.body?.name ||
+          req.body?.fullName ||
+          ""
+        )
+          .trim()
+          .slice(0, 120);
 
-app.get("/api/check", async (req, res) => {
-  try {
-    const input = req.query.url || req.query.domain;
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          email
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Please enter a valid email address."
+        });
+      }
 
-    if (!input) {
-      return res.status(400).json({
+      if (
+        password.length < 8 ||
+        password.length > 128
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Password must be between 8 and 128 characters."
+        });
+      }
+
+      const exists =
+        await pool.query(
+          `SELECT id
+           FROM users
+           WHERE email = $1
+           LIMIT 1`,
+          [email]
+        );
+
+      if (
+        exists.rows.length
+      ) {
+        return res.status(409).json({
+          success: false,
+          error:
+            "An account with that email already exists."
+        });
+      }
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+      const result =
+        await pool.query(
+          `INSERT INTO users
+             (email, password_hash, name)
+           VALUES
+             ($1, $2, $3)
+           RETURNING
+             id, email, name, created_at`,
+          [
+            email,
+            passwordHash,
+            name || null
+          ]
+        );
+
+      const user =
+        result.rows[0];
+
+      const token =
+        createAuthToken(
+          user.id,
+          true
+        );
+
+      res.cookie(
+        "scamratio_token",
+        token,
+        getAuthCookieOptions(true)
+      );
+
+      return res.status(201).json({
+        success: true,
+
+        message:
+          "Account created successfully.",
+
+        token,
+
+        user:
+          sanitizeUser(user)
+      });
+    } catch (error) {
+      console.error(
+        "POST /api/auth/register error:",
+        error
+      );
+
+      return res.status(500).json({
         success: false,
-        error: "Please provide a website URL."
+        error:
+          "Unable to create your account right now."
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/auth/login",
+  async (req, res) => {
+    if (
+      !isAllowedAuthOrigin(req)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Origin is not allowed."
       });
     }
 
-    const result = await performScamCheck(input);
+    if (!requireDatabase(res)) {
+      return;
+    }
 
-    res.json(result);
+    try {
+      const email =
+        String(
+          req.body?.email || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      const password =
+        String(
+          req.body?.password || ""
+        );
+
+      const rememberMe =
+        getRememberMe(
+          req.body
+        );
+
+      if (
+        !email ||
+        !password
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Email and password are required."
+        });
+      }
+
+      const result =
+        await pool.query(
+          `SELECT
+             id,
+             email,
+             name,
+             password_hash,
+             created_at
+           FROM users
+           WHERE email = $1
+           LIMIT 1`,
+          [email]
+        );
+
+      if (
+        !result.rows.length
+      ) {
+        return res.status(401).json({
+          success: false,
+          error:
+            "Invalid email or password."
+        });
+      }
+
+      const user =
+        result.rows[0];
+
+      const matches =
+        await bcrypt.compare(
+          password,
+          user.password_hash
+        );
+
+      if (!matches) {
+        return res.status(401).json({
+          success: false,
+          error:
+            "Invalid email or password."
+        });
+      }
+
+      const token =
+        createAuthToken(
+          user.id,
+          rememberMe
+        );
+
+      res.cookie(
+        "scamratio_token",
+        token,
+        getAuthCookieOptions(
+          rememberMe
+        )
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Login successful.",
+
+        token,
+
+        user:
+          sanitizeUser(user)
+      });
+    } catch (error) {
+      console.error(
+        "POST /api/auth/login error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to log in right now."
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/auth/me",
+  async (req, res) => {
+    if (!requireDatabase(res)) {
+      return;
+    }
+
+    try {
+      const user =
+        await getAuthenticatedUser(
+          req
+        );
+
+      if (!user) {
+        return res.status(401).json({
+          success: false,
+          authenticated: false,
+          error:
+            "Not authenticated."
+        });
+      }
+
+      return res.json({
+        success: true,
+
+        authenticated:
+          true,
+
+        user:
+          sanitizeUser(user)
+      });
+    } catch (error) {
+      console.error(
+        "GET /api/auth/me error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        authenticated: false,
+        error:
+          "Unable to verify the current session."
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/auth/logout",
+  (req, res) => {
+    if (
+      !isAllowedAuthOrigin(req)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Origin is not allowed."
+      });
+    }
+
+    res.clearCookie(
+      "scamratio_token",
+      {
+        httpOnly: true,
+
+        secure:
+          Boolean(
+            process.env.RENDER
+          ),
+
+        sameSite:
+          process.env.RENDER
+            ? "none"
+            : "lax",
+
+        path: "/"
+      }
+    );
+
+    return res.json({
+      success: true,
+
+      message:
+        "Logged out successfully."
+    });
+  }
+);
+
+app.post(
+  "/api/auth/forgot-password",
+  async (req, res) => {
+    if (
+      !isAllowedAuthOrigin(req)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Origin is not allowed."
+      });
+    }
+
+    if (!requireDatabase(res)) {
+      return;
+    }
+
+    try {
+      const email =
+        String(
+          req.body?.email || ""
+        )
+          .trim()
+          .toLowerCase();
+
+      if (
+        !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(
+          email
+        )
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Please enter a valid email address."
+        });
+      }
+
+      const result =
+        await pool.query(
+          `SELECT id, email
+           FROM users
+           WHERE email = $1
+           LIMIT 1`,
+          [email]
+        );
+
+      if (
+        !result.rows.length
+      ) {
+        return res.json({
+          success: true,
+
+          message:
+            "If an account exists for that email, a password reset link has been sent."
+        });
+      }
+
+      const rawToken =
+        crypto
+          .randomBytes(32)
+          .toString("hex");
+
+      const tokenHash =
+        crypto
+          .createHash("sha256")
+          .update(rawToken)
+          .digest("hex");
+
+      await pool.query(
+        `UPDATE users
+         SET
+           reset_token_hash = $1,
+           reset_token_expires_at =
+             NOW() + INTERVAL '1 hour',
+           updated_at = NOW()
+         WHERE id = $2`,
+        [
+          tokenHash,
+          result.rows[0].id
+        ]
+      );
+
+      const appUrl =
+        (
+          process.env.PUBLIC_APP_URL ||
+          "https://muhammadumar4412667.github.io/Scam-Ratio"
+        ).replace(
+          /\/$/,
+          ""
+        );
+
+      const resetUrl =
+        `${appUrl}/reset-password.html?token=${encodeURIComponent(
+          rawToken
+        )}`;
+
+      const emailResult =
+        await sendPasswordResetEmail(
+          email,
+          resetUrl
+        );
+
+      if (
+        !emailResult.sent
+      ) {
+        console.error(
+          "Password reset requested, but RESEND_API_KEY and AUTH_FROM_EMAIL are not configured."
+        );
+
+        return res.status(503).json({
+          success: false,
+          error:
+            "Password reset email service is not configured yet."
+        });
+      }
+
+      return res.json({
+        success: true,
+
+        message:
+          "If an account exists for that email, a password reset link has been sent."
+      });
+    } catch (error) {
+      console.error(
+        "POST /api/auth/forgot-password error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to process the password reset request right now."
+      });
+    }
+  }
+);
+
+app.post(
+  "/api/auth/reset-password",
+  async (req, res) => {
+    if (
+      !isAllowedAuthOrigin(req)
+    ) {
+      return res.status(403).json({
+        success: false,
+        error:
+          "Origin is not allowed."
+      });
+    }
+
+    if (!requireDatabase(res)) {
+      return;
+    }
+
+    try {
+      const token =
+        String(
+          req.body?.token || ""
+        ).trim();
+
+      const password =
+        String(
+          req.body?.password || ""
+        );
+
+      if (
+        !token ||
+        !password
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Reset token and new password are required."
+        });
+      }
+
+      if (
+        password.length < 8 ||
+        password.length > 128
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Password must be between 8 and 128 characters."
+        });
+      }
+
+      const tokenHash =
+        crypto
+          .createHash("sha256")
+          .update(token)
+          .digest("hex");
+
+      const result =
+        await pool.query(
+          `SELECT id
+           FROM users
+           WHERE
+             reset_token_hash = $1
+             AND reset_token_expires_at > NOW()
+           LIMIT 1`,
+          [tokenHash]
+        );
+
+      if (
+        !result.rows.length
+      ) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "The password reset link is invalid or has expired."
+        });
+      }
+
+      const passwordHash =
+        await bcrypt.hash(
+          password,
+          12
+        );
+
+      await pool.query(
+        `UPDATE users
+         SET
+           password_hash = $1,
+           reset_token_hash = NULL,
+           reset_token_expires_at = NULL,
+           updated_at = NOW()
+         WHERE id = $2`,
+        [
+          passwordHash,
+          result.rows[0].id
+        ]
+      );
+
+      return res.json({
+        success: true,
+
+        message:
+          "Your password has been reset successfully."
+      });
+    } catch (error) {
+      console.error(
+        "POST /api/auth/reset-password error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          "Unable to reset your password right now."
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/auth/google",
+  (req, res) => {
+    return res.status(501).json({
+      success: false,
+      error:
+        "Google login is not configured yet."
+    });
+  }
+);
+
+// --------------------------------------------------
+// Scam checker API
+// --------------------------------------------------
+
+app.post(
+  "/api/check",
+  async (req, res) => {
+    try {
+      const input =
+        req.body?.url ||
+        req.body?.domain;
+
+      if (!input) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Please provide a website URL."
+        });
+      }
+
+      return res.json(
+        await performScamCheck(
+          input
+        )
+      );
+    } catch (error) {
+      console.error(
+        "POST /api/check error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "Website check failed."
+      });
+    }
+  }
+);
+
+app.get(
+  "/api/check",
+  async (req, res) => {
+    try {
+      const input =
+        req.query.url ||
+        req.query.domain;
+
+      if (!input) {
+        return res.status(400).json({
+          success: false,
+          error:
+            "Please provide a website URL."
+        });
+      }
+
+      return res.json(
+        await performScamCheck(
+          input
+        )
+      );
+    } catch (error) {
+      console.error(
+        "GET /api/check error:",
+        error
+      );
+
+      return res.status(500).json({
+        success: false,
+        error:
+          error.message ||
+          "Website check failed."
+      });
+    }
+  }
+);
+
+// --------------------------------------------------
+// Website routes
+// --------------------------------------------------
+
+app.get(
+  "/",
+  (req, res) => {
+    res.sendFile(
+      path.join(
+        __dirname,
+        "public",
+        "index.html"
+      )
+    );
+  }
+);
+
+app.get(
+  "/result",
+  (req, res) => {
+    res.sendFile(
+      path.join(
+        __dirname,
+        "public",
+        "result.html"
+      )
+    );
+  }
+);
+
+app.get(
+  "/login",
+  (req, res) => {
+    res.sendFile(
+      path.join(
+        __dirname,
+        "public",
+        "login.html"
+      )
+    );
+  }
+);
+
+// --------------------------------------------------
+// 404 / error handlers
+// --------------------------------------------------
+
+app.use(
+  (req, res) => {
+    if (
+      req.path.startsWith("/api/")
+    ) {
+      return res.status(404).json({
+        success: false,
+        error:
+          "API endpoint not found."
+      });
+    }
+
+    return res
+      .status(404)
+      .send(
+        "Page not found."
+      );
+  }
+);
+
+app.use(
+  (error, req, res, next) => {
+    console.error(
+      "Server error:",
+      error
+    );
+
+    if (
+      req.path.startsWith("/api/")
+    ) {
+      return res.status(500).json({
+        success: false,
+        error:
+          "Internal server error."
+      });
+    }
+
+    return res
+      .status(500)
+      .send(
+        "Internal server error."
+      );
+  }
+);
+
+// --------------------------------------------------
+// Start server
+// --------------------------------------------------
+
+async function startServer() {
+  try {
+    await initDatabase();
+
+    app.listen(
+      PORT,
+      () => {
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          "        ScamRatio API Server"
+        );
+
+        console.log(
+          "======================================"
+        );
+
+        console.log(
+          `Server running on port ${PORT}`
+        );
+
+        console.log(
+          `http://localhost:${PORT}`
+        );
+      }
+    );
   } catch (error) {
-    console.error("GET /api/check error:", error);
+    console.error(
+      "Database initialization failed:",
+      error
+    );
 
-    res.status(500).json({
-      success: false,
-      error: error.message || "Website check failed."
-    });
+    process.exit(1);
   }
-});// --------------------------------------------------
-// Website Routes
-// --------------------------------------------------
+}
 
-app.get("/", (req, res) => {
-  res.sendFile(
-    path.join(__dirname, "public", "index.html")
-  );
-});
-
-app.get("/result", (req, res) => {
-  res.sendFile(
-    path.join(__dirname, "public", "result.html")
-  );
-});
-
-// --------------------------------------------------
-// 404 Handler
-// --------------------------------------------------
-
-app.use((req, res) => {
-  if (req.path.startsWith("/api/")) {
-    return res.status(404).json({
-      success: false,
-      error: "API endpoint not found."
-    });
-  }
-
-  res.status(404).send("Page not found.");
-});
-
-// --------------------------------------------------
-// Error Handler
-// --------------------------------------------------
-
-app.use((error, req, res, next) => {
-  console.error("Server error:", error);
-
-  if (req.path.startsWith("/api/")) {
-    return res.status(500).json({
-      success: false,
-      error: "Internal server error."
-    });
-  }
-
-  res.status(500).send("Internal server error.");
-});
-
-// --------------------------------------------------
-// Start Server
-// --------------------------------------------------
-
-app.listen(PORT, () => {
-  console.log("");
-  console.log("======================================");
-  console.log("        ScamRatio API Server");
-  console.log("======================================");
-  console.log(`Server running on port ${PORT}`);
-  console.log(`http://localhost:${PORT}`);
-  console.log("");
-});
+startServer();
